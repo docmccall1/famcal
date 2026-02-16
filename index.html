@@ -22,15 +22,17 @@
       </div>
     </header>
 
-    <nav class="tabbar card">
+    <nav class="tabbar card" id="mainTabs">
       <button class="tab-btn active" data-tab="calendar">Calendar</button>
-      <button class="tab-btn" data-tab="chores">Chore Lists</button>
+      <button class="tab-btn" data-tab="requests">Requests</button>
+      <button class="tab-btn" data-tab="chores">People & Chores</button>
+      <button class="tab-btn" data-tab="planner">Date Planner</button>
     </nav>
 
     <section class="card">
       <h3>Family Views</h3>
       <div id="personTabs" class="person-tabs"></div>
-      <p class="hint">Select Family to see everyone or choose a person to see weekly/monthly activities and chores for that person.</p>
+      <p class="hint">Use Family to view everything, or a person tab for individual activities and chores.</p>
     </section>
 
     <main id="calendarPage" class="layout page active">
@@ -64,18 +66,28 @@
               End Date
               <input type="date" id="eventEndDate" required />
             </label>
-            <label>
-              Start
-              <input type="time" id="eventStart" />
+            <label class="checkbox-row">
+              <input type="checkbox" id="eventAllDay" />
+              <span>All day / multi-day event</span>
             </label>
+            <div id="eventTimeRow" class="inline-form">
+              <label>
+                Start
+                <input type="time" id="eventStart" />
+              </label>
+              <label>
+                End
+                <input type="time" id="eventEnd" />
+              </label>
+            </div>
             <label>
-              End
-              <input type="time" id="eventEnd" />
-            </label>
-            <label>
-              Family Member
+              Created by
               <select id="eventMember" required></select>
             </label>
+            <fieldset>
+              <legend>Who is involved</legend>
+              <div id="eventInvolved" class="involved-grid"></div>
+            </fieldset>
             <label>
               Recurrence
               <select id="eventRecurring">
@@ -90,6 +102,11 @@
         </section>
 
         <section class="card">
+          <h3>Recurring Activities</h3>
+          <ul id="recurringList" class="list"></ul>
+        </section>
+
+        <section class="card">
           <h3>iCal Merge</h3>
           <form id="icalForm" class="stack">
             <label>
@@ -101,54 +118,30 @@
           </form>
           <button id="exportIcalBtn" class="btn btn-primary">Export Current View .ics</button>
         </section>
+      </aside>
+    </main>
 
+    <main id="requestsPage" class="page">
+      <section class="layout requests-layout">
         <section class="card">
-          <h3>Requests</h3>
-          <form id="requestForm" class="inline-form">
-            <input type="text" id="requestInput" placeholder="Add request" required />
-            <select id="requestMember" required></select>
-            <button class="btn btn-secondary" type="submit">Add</button>
+          <h2>Calendar Requests</h2>
+          <form id="requestForm" class="stack">
+            <label>
+              Request details
+              <textarea id="requestInput" rows="7" placeholder="Type full request details, desired date/time, and notes" required></textarea>
+            </label>
+            <label>
+              Requested by
+              <select id="requestMember" required></select>
+            </label>
+            <button class="btn btn-primary" type="submit">Submit Request</button>
           </form>
+        </section>
+        <section class="card">
+          <h2>Open Requests</h2>
           <ul id="requestList" class="list"></ul>
         </section>
-
-        <section class="card">
-          <h3>High Importance To-Do</h3>
-          <form id="todoForm" class="inline-form">
-            <input type="text" id="todoInput" placeholder="Add top priority task" required />
-            <input type="date" id="todoMustDoDate" required />
-            <select id="todoMember" required></select>
-            <button class="btn btn-secondary" type="submit">Add</button>
-          </form>
-          <ul id="todoList" class="list"></ul>
-        </section>
-
-        <section class="card">
-          <h3>Recurring Activities</h3>
-          <ul id="recurringList" class="list"></ul>
-        </section>
-
-        <section class="card ai-card">
-          <h3>AI Date Planner</h3>
-          <p class="hint">Paste busy times, scan the next 4 weeks, and get local place ideas.</p>
-          <label>
-            Husband busy blocks
-            <textarea id="busyHusband" rows="3" placeholder="Example: Tue 18:00-20:00, Thu 19:00-21:00"></textarea>
-          </label>
-          <label>
-            Wife busy blocks
-            <textarea id="busyWife" rows="3" placeholder="Example: Mon 17:00-19:00, Wed 18:00-20:00"></textarea>
-          </label>
-          <label>
-            City and State
-            <input type="text" id="plannerLocation" placeholder="Example: Austin, TX" />
-          </label>
-          <button id="planDateBtn" class="btn btn-primary">Find Best Days + Local Ideas</button>
-          <ul id="plannerOutput" class="list"></ul>
-          <h4>Local Suggestions</h4>
-          <ul id="plannerPlaces" class="list"></ul>
-        </section>
-      </aside>
+      </section>
     </main>
 
     <main id="choresPage" class="page">
@@ -175,7 +168,11 @@
         </section>
 
         <section class="card">
-          <h2>Chores</h2>
+          <h2>Individual Calendar + Chores</h2>
+          <h4>Upcoming Activities</h4>
+          <ul id="personEvents" class="list"></ul>
+          <hr />
+          <h4>Chore List</h4>
           <form id="choreForm" class="inline-form">
             <input type="text" id="choreInput" placeholder="Add chore" required />
             <select id="choreFrequency">
@@ -189,6 +186,34 @@
           <button id="generateChoresBtn" class="btn btn-primary">AI Generate Chores For Selected Tab</button>
           <p id="choreGenNote" class="hint">Select a person tab to generate chores.</p>
           <ul id="choreList" class="list chore-plan-list"></ul>
+        </section>
+      </section>
+    </main>
+
+    <main id="plannerPage" class="page">
+      <section class="layout planner-layout">
+        <section class="card">
+          <h2>AI Date Planner</h2>
+          <p class="hint">Find local ideas using OpenAI. Choose one and it will auto-add to the calendar.</p>
+          <form id="plannerForm" class="stack">
+            <label>
+              Location
+              <input type="text" id="plannerLocation" placeholder="Austin, TX" required />
+            </label>
+            <label>
+              Preferences
+              <textarea id="plannerPrefs" rows="4" placeholder="Example: cozy, under $120 total, kid-free Friday nights"></textarea>
+            </label>
+            <label>
+              Partner email
+              <input type="email" id="partnerEmail" placeholder="partner@email.com" />
+            </label>
+            <button class="btn btn-primary" type="submit">Generate Local Date Ideas</button>
+          </form>
+        </section>
+        <section class="card">
+          <h2>Suggested Date Ideas</h2>
+          <ul id="plannerIdeas" class="list"></ul>
         </section>
       </section>
     </main>

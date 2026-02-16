@@ -10,71 +10,68 @@ const state = {
   requests: [],
   todos: [],
   chores: [],
-  busy: {
-    husband: "",
-    wife: "",
+  planner: {
     location: "",
+    prefs: "",
+    partnerEmail: "",
+    ideas: [],
   },
 };
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const DAY_INDEX = DAY_NAMES.reduce((acc, name, i) => {
-  acc[name.toLowerCase()] = i;
-  return acc;
-}, {});
-
-const SLOT_TEMPLATES = [
-  { label: "Lunch", start: 12 * 60, end: 14 * 60, weight: 1 },
-  { label: "Early Dinner", start: 17 * 60 + 30, end: 19 * 60 + 30, weight: 2 },
-  { label: "Date Night", start: 19 * 60, end: 21 * 60, weight: 3 },
-];
-
 let syncTimer = null;
 
 const el = {
   label: document.getElementById("currentLabel"),
   grid: document.getElementById("calendarGrid"),
   viewBtns: document.querySelectorAll(".view-btn"),
-  topTabs: document.querySelectorAll(".tab-btn"),
+  mainTabs: document.querySelectorAll("#mainTabs .tab-btn"),
   personTabs: document.getElementById("personTabs"),
   calendarPage: document.getElementById("calendarPage"),
+  requestsPage: document.getElementById("requestsPage"),
   choresPage: document.getElementById("choresPage"),
+  plannerPage: document.getElementById("plannerPage"),
   requestList: document.getElementById("requestList"),
-  todoList: document.getElementById("todoList"),
   recurringList: document.getElementById("recurringList"),
-  plannerOutput: document.getElementById("plannerOutput"),
-  plannerPlaces: document.getElementById("plannerPlaces"),
-  busyHusband: document.getElementById("busyHusband"),
-  busyWife: document.getElementById("busyWife"),
-  plannerLocation: document.getElementById("plannerLocation"),
   memberList: document.getElementById("memberList"),
   choreList: document.getElementById("choreList"),
+  personEvents: document.getElementById("personEvents"),
+  plannerIdeas: document.getElementById("plannerIdeas"),
+  plannerLocation: document.getElementById("plannerLocation"),
+  plannerPrefs: document.getElementById("plannerPrefs"),
+  partnerEmail: document.getElementById("partnerEmail"),
   choreGenNote: document.getElementById("choreGenNote"),
   eventMember: document.getElementById("eventMember"),
   requestMember: document.getElementById("requestMember"),
-  todoMember: document.getElementById("todoMember"),
   choreMember: document.getElementById("choreMember"),
   icalMember: document.getElementById("icalMember"),
+  eventAllDay: document.getElementById("eventAllDay"),
+  eventTimeRow: document.getElementById("eventTimeRow"),
+  eventInvolved: document.getElementById("eventInvolved"),
 };
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function roomId() {
+function newRoomId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-function formatDate(date) {
-  return date.toISOString().slice(0, 10);
+function formatDate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
+function addDaysIso(iso, days) {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return formatDate(d);
 }
 
 function memberColor(memberName) {
   const input = (memberName || "family").toLowerCase();
   let hash = 0;
-  for (let i = 0; i < input.length; i += 1) {
-    hash = ((hash << 5) - hash + input.charCodeAt(i)) | 0;
-  }
+  for (let i = 0; i < input.length; i += 1) hash = ((hash << 5) - hash + input.charCodeAt(i)) | 0;
   const hue = Math.abs(hash) % 360;
   return `hsl(${hue} 70% 45%)`;
 }
@@ -90,158 +87,84 @@ function defaultMembers() {
   ];
 }
 
-function normalizeMember(member) {
+function normalizeMember(m) {
   return {
-    id: member.id || uid(),
-    name: member.name || "Unnamed",
-    role: member.role === "adult" ? "adult" : "child",
-    age: Number(member.age) || 0,
-    gender: member.gender || "non-binary",
+    id: m.id || uid(),
+    name: m.name || "Unnamed",
+    role: m.role === "adult" ? "adult" : "child",
+    age: Number(m.age) || 0,
+    gender: m.gender || "non-binary",
   };
 }
 
 function normalizeEvent(ev) {
-  const startDate = ev.startDate || ev.date;
-  const endDate = ev.endDate || startDate;
   return {
     id: ev.id || uid(),
     title: ev.title || "Untitled",
-    startDate,
-    endDate: endDate && startDate && endDate < startDate ? startDate : endDate,
+    startDate: ev.startDate || ev.date || "",
+    endDate: ev.endDate || ev.startDate || ev.date || "",
+    allDay: !!ev.allDay,
     start: ev.start || "",
     end: ev.end || "",
     memberId: ev.memberId || "",
-    memberName: ev.memberName || ev.member || ev.person || "",
+    memberName: ev.memberName || ev.member || "",
+    involvedMemberIds: Array.isArray(ev.involvedMemberIds) ? ev.involvedMemberIds : [],
     recurring: ev.recurring || "none",
   };
 }
 
-function normalizeRequest(item) {
+function normalizeRequest(r) {
   return {
-    id: item.id || uid(),
-    text: item.text || "",
-    memberId: item.memberId || "",
-    memberName: item.memberName || item.member || "",
+    id: r.id || uid(),
+    text: r.text || "",
+    memberId: r.memberId || "",
+    memberName: r.memberName || r.member || "",
   };
 }
 
-function normalizeTodo(item) {
+function normalizeChore(c) {
   return {
-    id: item.id || uid(),
-    text: item.text || "",
-    done: !!item.done,
-    mustDoDate: item.mustDoDate || formatDate(new Date()),
-    memberId: item.memberId || "",
-    memberName: item.memberName || item.member || "",
+    id: c.id || uid(),
+    title: c.title || "",
+    frequency: c.frequency || "Daily",
+    done: !!c.done,
+    autogenerated: !!c.autogenerated,
+    memberId: c.memberId || "",
+    memberName: c.memberName || c.member || "",
   };
 }
 
-function normalizeChore(chore) {
+function normalizePayload(p) {
   return {
-    id: chore.id || uid(),
-    title: chore.title || "",
-    frequency: chore.frequency || "Daily",
-    done: !!chore.done,
-    autogenerated: !!chore.autogenerated,
-    memberId: chore.memberId || "",
-    memberName: chore.memberName || chore.member || "",
+    members: (Array.isArray(p.members) ? p.members : []).map(normalizeMember),
+    events: (Array.isArray(p.events) ? p.events : []).map(normalizeEvent),
+    requests: (Array.isArray(p.requests) ? p.requests : []).map(normalizeRequest),
+    chores: (Array.isArray(p.chores) ? p.chores : []).map(normalizeChore),
+    selectedPersonId: typeof p.selectedPersonId === "string" ? p.selectedPersonId : "family",
+    activeTab: ["calendar", "requests", "chores", "planner"].includes(p.activeTab) ? p.activeTab : "calendar",
+    planner: {
+      location: p.planner?.location || "",
+      prefs: p.planner?.prefs || "",
+      partnerEmail: p.planner?.partnerEmail || "",
+      ideas: Array.isArray(p.planner?.ideas) ? p.planner.ideas : [],
+    },
+    lastUpdatedAt: Number(p.lastUpdatedAt) || 0,
   };
 }
 
-function normalizePayload(parsed) {
-  const membersRaw = Array.isArray(parsed.members) ? parsed.members : [];
-  const legacyChildren = Array.isArray(parsed.children)
-    ? parsed.children.map((c) => ({ ...c, role: "child" }))
-    : [];
-  const members = (membersRaw.length ? membersRaw : legacyChildren).map(normalizeMember);
+function applyLoadedState(raw) {
+  const p = normalizePayload(raw || {});
+  state.members = p.members.length ? p.members : defaultMembers();
+  state.events = p.events;
+  state.requests = p.requests;
+  state.chores = p.chores;
+  state.selectedPersonId = p.selectedPersonId;
+  state.activeTab = p.activeTab;
+  state.planner = p.planner;
+  state.lastUpdatedAt = p.lastUpdatedAt;
+  backfillLinks();
 
-  let chores = Array.isArray(parsed.chores) ? parsed.chores.map(normalizeChore) : [];
-  if (!chores.length && Array.isArray(parsed.chorePlans)) {
-    const plans = parsed.chorePlans;
-    chores = plans.flatMap((plan) => (Array.isArray(plan.tasks) ? plan.tasks : []).map((task) => normalizeChore({
-      title: task.title,
-      frequency: task.frequency,
-      done: task.done,
-      memberName: plan.childName,
-      memberId: plan.childId,
-      autogenerated: true,
-    })));
-  }
-
-  return {
-    members: members.length ? members : defaultMembers(),
-    events: Array.isArray(parsed.events) ? parsed.events.map(normalizeEvent) : [],
-    requests: Array.isArray(parsed.requests) ? parsed.requests.map(normalizeRequest) : [],
-    todos: Array.isArray(parsed.todos) ? parsed.todos.map(normalizeTodo) : [],
-    chores,
-    selectedPersonId: typeof parsed.selectedPersonId === "string" ? parsed.selectedPersonId : "family",
-    activeTab: parsed.activeTab === "chores" ? "chores" : "calendar",
-    busy: parsed.busy && typeof parsed.busy === "object"
-      ? {
-          husband: parsed.busy.husband || "",
-          wife: parsed.busy.wife || "",
-          location: parsed.busy.location || "",
-        }
-      : { husband: "", wife: "", location: "" },
-    lastUpdatedAt: Number(parsed.lastUpdatedAt) || 0,
-  };
-}
-
-function findMemberById(id) {
-  return state.members.find((m) => m.id === id) || null;
-}
-
-function findMemberByName(name) {
-  if (!name) return null;
-  const n = name.trim().toLowerCase();
-  return state.members.find((m) => m.name.trim().toLowerCase() === n) || null;
-}
-
-function displayMemberName(item) {
-  const byId = item.memberId ? findMemberById(item.memberId) : null;
-  if (byId) return byId.name;
-  if (item.memberName) return item.memberName;
-  return "Unassigned";
-}
-
-function backfillMemberIds() {
-  const collections = [state.events, state.requests, state.todos, state.chores];
-  for (const rows of collections) {
-    for (const row of rows) {
-      if (!row.memberId && row.memberName) {
-        const match = findMemberByName(row.memberName);
-        if (match) row.memberId = match.id;
-      }
-      if (row.memberId && !row.memberName) {
-        const m = findMemberById(row.memberId);
-        row.memberName = m ? m.name : "";
-      }
-    }
-  }
-}
-
-function itemMatchesSelected(item) {
-  if (state.selectedPersonId === "family") return true;
-  if (item.memberId && item.memberId === state.selectedPersonId) return true;
-  const selected = findMemberById(state.selectedPersonId);
-  if (!selected) return false;
-  return !!item.memberName && item.memberName.trim().toLowerCase() === selected.name.trim().toLowerCase();
-}
-
-function applyLoadedState(parsed) {
-  const normalized = normalizePayload(parsed || {});
-  state.members = normalized.members;
-  state.events = normalized.events;
-  state.requests = normalized.requests;
-  state.todos = normalized.todos;
-  state.chores = normalized.chores;
-  state.activeTab = normalized.activeTab;
-  state.selectedPersonId = normalized.selectedPersonId;
-  state.busy = normalized.busy;
-  state.lastUpdatedAt = normalized.lastUpdatedAt;
-
-  backfillMemberIds();
-  if (state.selectedPersonId !== "family" && !findMemberById(state.selectedPersonId)) {
+  if (state.selectedPersonId !== "family" && !findMember(state.selectedPersonId)) {
     state.selectedPersonId = "family";
   }
 }
@@ -251,24 +174,23 @@ function serializeState() {
     members: state.members,
     events: state.events,
     requests: state.requests,
-    todos: state.todos,
     chores: state.chores,
     selectedPersonId: state.selectedPersonId,
     activeTab: state.activeTab,
-    busy: state.busy,
+    planner: state.planner,
     lastUpdatedAt: state.lastUpdatedAt,
   };
 }
 
-function saveStateLocally() {
+function saveLocal() {
   localStorage.setItem("familyCalendarState", JSON.stringify(serializeState()));
 }
 
-function touchState() {
+function touch() {
   state.lastUpdatedAt = Date.now();
 }
 
-async function pushRemoteState() {
+async function pushRemote() {
   if (!state.roomId) return;
   try {
     await fetch(`/api/state?room=${encodeURIComponent(state.roomId)}`, {
@@ -276,130 +198,169 @@ async function pushRemoteState() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(serializeState()),
     });
-  } catch (_err) {
-    // Keep local state if remote is unavailable.
-  }
+  } catch (_err) {}
 }
 
 async function saveState() {
-  touchState();
-  saveStateLocally();
-  await pushRemoteState();
+  touch();
+  saveLocal();
+  await pushRemote();
 }
 
-async function fetchRemoteState() {
+async function fetchRemote() {
   if (!state.roomId) return null;
   try {
-    const res = await fetch(`/api/state?room=${encodeURIComponent(state.roomId)}`);
-    if (!res.ok) return null;
-    const payload = await res.json();
-    return payload && typeof payload === "object" ? payload : null;
+    const r = await fetch(`/api/state?room=${encodeURIComponent(state.roomId)}`);
+    if (!r.ok) return null;
+    return await r.json();
   } catch (_err) {
     return null;
   }
 }
 
 async function mergeRemoteIfNewer() {
-  const remote = await fetchRemoteState();
-  if (!remote || !remote.lastUpdatedAt) return;
-  if (Number(remote.lastUpdatedAt) <= state.lastUpdatedAt) return;
+  const remote = await fetchRemote();
+  if (!remote || Number(remote.lastUpdatedAt) <= state.lastUpdatedAt) return;
   applyLoadedState(remote);
-  saveStateLocally();
+  saveLocal();
   render();
 }
 
-function startSyncPolling() {
+function startPolling() {
   if (!state.roomId) return;
   if (syncTimer) clearInterval(syncTimer);
-  syncTimer = setInterval(() => {
-    mergeRemoteIfNewer();
-  }, 5000);
+  syncTimer = setInterval(() => mergeRemoteIfNewer(), 5000);
 }
 
 async function loadState() {
   const url = new URL(window.location.href);
-  const encoded = url.searchParams.get("data");
   const room = url.searchParams.get("room");
+  const data = url.searchParams.get("data");
   if (room) state.roomId = room;
 
-  if (encoded) {
-    try {
-      applyLoadedState(JSON.parse(decodeURIComponent(atob(encoded))));
-    } catch (_err) {
-      console.warn("Failed to parse shared snapshot");
-    }
+  if (data) {
+    try { applyLoadedState(JSON.parse(decodeURIComponent(atob(data)))); } catch (_err) {}
   }
 
-  const raw = localStorage.getItem("familyCalendarState");
-  if (raw) {
+  const local = localStorage.getItem("familyCalendarState");
+  if (local) {
     try {
-      const local = JSON.parse(raw);
-      const localNorm = normalizePayload(local);
-      if (localNorm.lastUpdatedAt >= state.lastUpdatedAt) applyLoadedState(local);
-    } catch (_err) {
-      console.warn("Failed to parse local state");
-    }
+      const parsed = JSON.parse(local);
+      const n = normalizePayload(parsed);
+      if (n.lastUpdatedAt >= state.lastUpdatedAt) applyLoadedState(parsed);
+    } catch (_err) {}
   }
 
   if (state.roomId) {
-    const remote = await fetchRemoteState();
+    const remote = await fetchRemote();
     if (remote && Number(remote.lastUpdatedAt) > state.lastUpdatedAt) {
       applyLoadedState(remote);
-    } else if (!remote && state.lastUpdatedAt > 0) {
-      await pushRemoteState();
+    } else if (!remote && state.lastUpdatedAt) {
+      await pushRemote();
     }
   }
 
   if (!state.members.length) state.members = defaultMembers();
-  backfillMemberIds();
-  saveStateLocally();
-  startSyncPolling();
+  saveLocal();
+  startPolling();
 }
 
-function setActiveTab(tab, shouldSave = true) {
-  state.activeTab = tab === "chores" ? "chores" : "calendar";
-  el.topTabs.forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tab === state.activeTab);
-  });
-  el.calendarPage.classList.toggle("active", state.activeTab === "calendar");
-  el.choresPage.classList.toggle("active", state.activeTab === "chores");
-  if (shouldSave) saveState();
+function findMember(id) {
+  return state.members.find((m) => m.id === id) || null;
 }
 
-function setSelectedPerson(id, shouldSave = true) {
-  state.selectedPersonId = id || "family";
+function findMemberByName(name) {
+  if (!name) return null;
+  const n = name.trim().toLowerCase();
+  return state.members.find((m) => m.name.trim().toLowerCase() === n) || null;
+}
+
+function displayMember(item) {
+  if (item.memberId) {
+    const m = findMember(item.memberId);
+    if (m) return m.name;
+  }
+  return item.memberName || "Unassigned";
+}
+
+function backfillLinks() {
+  for (const collection of [state.events, state.requests, state.chores]) {
+    for (const row of collection) {
+      if (!row.memberId && row.memberName) {
+        const m = findMemberByName(row.memberName);
+        if (m) row.memberId = m.id;
+      }
+      if (row.memberId && !row.memberName) {
+        const m = findMember(row.memberId);
+        if (m) row.memberName = m.name;
+      }
+    }
+  }
+}
+
+function matchesSelected(item) {
+  if (state.selectedPersonId === "family") return true;
+  if (item.memberId === state.selectedPersonId) return true;
+  if (Array.isArray(item.involvedMemberIds) && item.involvedMemberIds.includes(state.selectedPersonId)) return true;
+  return false;
+}
+
+function visibleEvents() { return state.events.filter(matchesSelected); }
+function visibleRequests() { return state.requests.filter(matchesSelected); }
+function visibleChores() { return state.chores.filter(matchesSelected); }
+
+function setMainTab(tab, save = true) {
+  state.activeTab = tab;
+  el.mainTabs.forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  el.calendarPage.classList.toggle("active", tab === "calendar");
+  el.requestsPage.classList.toggle("active", tab === "requests");
+  el.choresPage.classList.toggle("active", tab === "chores");
+  el.plannerPage.classList.toggle("active", tab === "planner");
+  if (save) saveState();
+}
+
+function setSelectedPerson(id, save = true) {
+  state.selectedPersonId = id;
   renderPersonTabs();
   populateMemberSelects();
   renderCalendar();
   renderRequests();
-  renderTodos();
   renderRecurring();
+  renderPersonEvents();
   renderChores();
   updateChoreNote();
-  if (shouldSave) saveState();
+  if (save) saveState();
 }
 
-function visibleEvents() {
-  return state.events.filter(itemMatchesSelected);
+function renderPersonTabs() {
+  const items = [
+    `<button class="person-tab ${state.selectedPersonId === "family" ? "active" : ""}" data-person-id="family">Family</button>`,
+    ...state.members.map((m) => `<button class="person-tab ${state.selectedPersonId === m.id ? "active" : ""}" data-person-id="${m.id}">${escapeHtml(m.name)}</button>`),
+  ];
+  el.personTabs.innerHTML = items.join("");
 }
 
-function visibleRequests() {
-  return state.requests.filter(itemMatchesSelected);
+function renderInvolvedChecklist() {
+  el.eventInvolved.innerHTML = state.members.map((m) => `
+    <label class="checkbox-row">
+      <input type="checkbox" value="${m.id}" data-involved-member />
+      <span>${escapeHtml(m.name)}</span>
+    </label>
+  `).join("");
 }
 
-function visibleTodos() {
-  return state.todos.filter(itemMatchesSelected);
-}
-
-function visibleChores() {
-  return state.chores.filter(itemMatchesSelected);
+function populateMemberSelects() {
+  const selects = [el.eventMember, el.requestMember, el.choreMember, el.icalMember];
+  const selected = state.selectedPersonId !== "family" ? state.selectedPersonId : state.members[0]?.id;
+  for (const s of selects) {
+    s.innerHTML = state.members.map((m) => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join("");
+    if (selected) s.value = selected;
+  }
 }
 
 function setView(view) {
   state.view = view;
-  el.viewBtns.forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.view === view);
-  });
+  el.viewBtns.forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   renderCalendar();
 }
 
@@ -420,29 +381,11 @@ function getWeekStart(date) {
   return d;
 }
 
-function eventDateText(ev) {
-  if (!ev.startDate) return "";
-  if (ev.startDate === ev.endDate) {
-    return new Date(`${ev.startDate}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  }
-  const start = new Date(`${ev.startDate}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  const end = new Date(`${ev.endDate}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  return `${start}-${end}`;
-}
-
-function eventsForDate(date) {
-  const target = formatDate(date);
-  return visibleEvents().filter((ev) => occursOnDate(ev, date, target));
-}
-
-function occursOnDate(ev, dateObj, target) {
-  const startDate = ev.startDate;
-  const endDate = ev.endDate || startDate;
-  if (!startDate) return false;
-
-  if (ev.recurring === "none") return target >= startDate && target <= endDate;
-
-  const origin = new Date(`${startDate}T00:00:00`);
+function occursOnDate(ev, dateObj, targetIso) {
+  if (!ev.startDate) return false;
+  const end = ev.endDate || ev.startDate;
+  if (ev.recurring === "none") return targetIso >= ev.startDate && targetIso <= end;
+  const origin = new Date(`${ev.startDate}T00:00:00`);
   if (dateObj < origin) return false;
   if (ev.recurring === "daily") return true;
   if (ev.recurring === "weekly") return origin.getDay() === dateObj.getDay();
@@ -450,76 +393,77 @@ function occursOnDate(ev, dateObj, target) {
   return false;
 }
 
-function dateCell(date, opts = {}) {
-  const includeChores = !!opts.includeChores;
-  const dStr = formatDate(date);
-  const events = eventsForDate(date);
-  const dateLabel = `${DAY_NAMES[date.getDay()]} ${date.getMonth() + 1}/${date.getDate()}`;
-  const items = events.map((ev) => {
-    const memberName = displayMemberName(ev);
+function eventsForDate(dateObj) {
+  const iso = formatDate(dateObj);
+  return visibleEvents().filter((ev) => occursOnDate(ev, dateObj, iso));
+}
+
+function eventDateText(ev) {
+  if (!ev.startDate) return "";
+  if (ev.startDate === ev.endDate) return ev.startDate;
+  return `${ev.startDate} to ${ev.endDate}`;
+}
+
+function eventInvolvedNames(ev) {
+  const ids = Array.isArray(ev.involvedMemberIds) ? ev.involvedMemberIds : [];
+  const names = ids.map((id) => findMember(id)?.name).filter(Boolean);
+  return names;
+}
+
+function dateCell(date, includeDayChores = false) {
+  const iso = formatDate(date);
+  const rows = eventsForDate(date).map((ev) => {
+    const owner = displayMember(ev);
+    const involved = eventInvolvedNames(ev);
+    const involvedText = involved.length ? `<div class="event-meta">Involved: ${escapeHtml(involved.join(", "))}</div>` : "";
     return `
-      <li class="event-item" style="--member-color: ${memberColor(memberName)}">
+      <li class="event-item" style="--member-color: ${memberColor(owner)}">
         <div>
-          <strong>${ev.start ? `${escapeHtml(ev.start)} ` : ""}${escapeHtml(ev.title)}</strong>
+          <strong>${ev.allDay ? "All Day " : (ev.start ? `${ev.start} ` : "")}${escapeHtml(ev.title)}</strong>
           <div class="event-meta">${escapeHtml(eventDateText(ev))}${ev.recurring !== "none" ? ` | ${escapeHtml(ev.recurring)}` : ""}</div>
+          ${involvedText}
         </div>
-        <span class="member-pill" style="--member-color: ${memberColor(memberName)}">${escapeHtml(memberName)}</span>
+        <span class="member-pill" style="--member-color: ${memberColor(owner)}">${escapeHtml(owner)}</span>
       </li>
     `;
   }).join("");
 
-  const choresMarkup = includeChores
-    ? (() => {
-      const chores = [...visibleChores()].sort((a, b) => Number(a.done) - Number(b.done));
-      const rows = chores.map((chore) => `
-          <li>
-            <label>
-              <input type="checkbox" data-toggle-chore="${chore.id}" ${chore.done ? "checked" : ""} />
-              <span class="${chore.done ? "done" : ""}">${escapeHtml(chore.title)} <small>(${escapeHtml(chore.frequency)})</small></span>
-            </label>
-          </li>
-      `).join("");
-      return `
-        <div class="day-chores">
-          <h4>Chores</h4>
-          <ul>${rows || "<li class='muted'>No chores for this view.</li>"}</ul>
-        </div>
-      `;
-    })()
+  const choresBlock = includeDayChores
+    ? `<div class="day-chores"><h4>Chores</h4><ul>${visibleChores().map((c) => `<li><label><input type="checkbox" data-toggle-chore="${c.id}" ${c.done ? "checked" : ""} /><span class="${c.done ? "done" : ""}">${escapeHtml(c.title)} <small>(${escapeHtml(c.frequency)})</small></span></label></li>`).join("") || "<li class='muted'>No chores</li>"}</ul></div>`
     : "";
 
   return `
     <article class="cell">
-      <h4>${dateLabel}</h4>
-      <ul>${items || "<li class='muted'>No events</li>"}</ul>
-      ${choresMarkup}
-      <button class="link-btn" data-action="jump" data-date="${dStr}">Add here</button>
+      <h4>${DAY_NAMES[date.getDay()]} ${date.getMonth() + 1}/${date.getDate()}</h4>
+      <ul>${rows || "<li class='muted'>No events</li>"}</ul>
+      ${choresBlock}
+      <button class="link-btn" data-action="jump" data-date="${iso}">Add here</button>
     </article>
   `;
 }
 
 function renderCalendar() {
   const d = new Date(state.currentDate);
-  const selectedLabel = state.selectedPersonId === "family" ? "Family" : (findMemberById(state.selectedPersonId)?.name || "Family");
+  const who = state.selectedPersonId === "family" ? "Family" : (findMember(state.selectedPersonId)?.name || "Family");
 
   if (state.view === "day") {
-    el.label.textContent = `${selectedLabel} | ${d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}`;
+    el.label.textContent = `${who} | ${d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}`;
     el.grid.className = "calendar-grid day";
-    el.grid.innerHTML = dateCell(d, { includeChores: true });
+    el.grid.innerHTML = dateCell(d, true);
     return;
   }
 
   if (state.view === "week") {
     const start = getWeekStart(d);
-    const weekDays = Array.from({ length: 7 }, (_, i) => {
-      const day = new Date(start);
-      day.setDate(start.getDate() + i);
-      return day;
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const x = new Date(start);
+      x.setDate(start.getDate() + i);
+      return x;
     });
-    const end = weekDays[6];
-    el.label.textContent = `${selectedLabel} | ${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })} - ${end.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
+    const end = days[6];
+    el.label.textContent = `${who} | ${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
     el.grid.className = "calendar-grid week";
-    el.grid.innerHTML = weekDays.map((day) => dateCell(day)).join("");
+    el.grid.innerHTML = days.map((x) => dateCell(x)).join("");
     return;
   }
 
@@ -527,205 +471,102 @@ function renderCalendar() {
     const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
     const start = getWeekStart(monthStart);
     const days = Array.from({ length: 42 }, (_, i) => {
-      const day = new Date(start);
-      day.setDate(start.getDate() + i);
-      return day;
+      const x = new Date(start);
+      x.setDate(start.getDate() + i);
+      return x;
     });
-    el.label.textContent = `${selectedLabel} | ${d.toLocaleDateString(undefined, { month: "long", year: "numeric" })}`;
+    el.label.textContent = `${who} | ${d.toLocaleDateString(undefined, { month: "long", year: "numeric" })}`;
     el.grid.className = "calendar-grid month";
-    el.grid.innerHTML = days.map((day) => {
-      const faded = day.getMonth() !== d.getMonth() ? "faded" : "";
-      return `<div class="month-cell ${faded}">${dateCell(day)}</div>`;
-    }).join("");
+    el.grid.innerHTML = days.map((x) => `<div class="month-cell ${x.getMonth() !== d.getMonth() ? "faded" : ""}">${dateCell(x)}</div>`).join("");
     return;
   }
 
   const year = d.getFullYear();
-  const filtered = visibleEvents();
-  el.label.textContent = `${selectedLabel} | ${year}`;
+  el.label.textContent = `${who} | ${year}`;
   el.grid.className = "calendar-grid year";
-  el.grid.innerHTML = Array.from({ length: 12 }, (_, month) => {
-    const first = new Date(year, month, 1);
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const count = Array.from({ length: daysInMonth }, (_, day) => {
-      const date = new Date(year, month, day + 1);
-      return filtered.filter((ev) => occursOnDate(ev, date, formatDate(date))).length;
-    }).reduce((a, b) => a + b, 0);
-
-    return `
-      <article class="cell month-summary">
-        <h4>${first.toLocaleDateString(undefined, { month: "long" })}</h4>
-        <p>${count} event${count === 1 ? "" : "s"}</p>
-      </article>
-    `;
+  el.grid.innerHTML = Array.from({ length: 12 }, (_, m) => {
+    const first = new Date(year, m, 1);
+    const daysInMonth = new Date(year, m + 1, 0).getDate();
+    let count = 0;
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const date = new Date(year, m, day);
+      count += eventsForDate(date).length;
+    }
+    return `<article class="cell month-summary"><h4>${first.toLocaleDateString(undefined, { month: "long" })}</h4><p>${count} event${count === 1 ? "" : "s"}</p></article>`;
   }).join("");
 }
 
 function renderRequests() {
-  el.requestList.innerHTML = visibleRequests().map((item) => {
-    const memberName = displayMemberName(item);
-    return `
-      <li>
-        <div class="list-content">
-          <span>${escapeHtml(item.text)}</span>
-          <span class="member-pill" style="--member-color: ${memberColor(memberName)}">${escapeHtml(memberName)}</span>
-        </div>
-        <button class="icon-btn" data-delete-request="${item.id}">✕</button>
-      </li>
-    `;
-  }).join("") || `<li class="muted">No requests</li>`;
-}
-
-function isOverdue(item) {
-  return !item.done && item.mustDoDate < formatDate(new Date());
-}
-
-function renderTodos() {
-  const sorted = [...visibleTodos()].sort((a, b) => {
-    if (a.done !== b.done) return a.done ? 1 : -1;
-    return a.mustDoDate.localeCompare(b.mustDoDate);
-  });
-
-  el.todoList.innerHTML = sorted.map((item) => {
-    const memberName = displayMemberName(item);
-    return `
-      <li class="${isOverdue(item) ? "overdue" : ""}">
-        <div class="list-content">
-          <label>
-            <input type="checkbox" data-toggle-todo="${item.id}" ${item.done ? "checked" : ""} />
-            <span class="${item.done ? "done" : ""}">${escapeHtml(item.text)}</span>
-          </label>
-          <div class="todo-meta">
-            <small>Must do: ${escapeHtml(item.mustDoDate)}</small>
-            <span class="member-pill" style="--member-color: ${memberColor(memberName)}">${escapeHtml(memberName)}</span>
-          </div>
-        </div>
-        <button class="icon-btn" data-delete-todo="${item.id}">✕</button>
-      </li>
-    `;
-  }).join("") || `<li class="muted">No high-priority to-dos</li>`;
+  const rows = visibleRequests().map((r) => {
+    const who = displayMember(r);
+    return `<li><div class="list-content"><span>${escapeHtml(r.text)}</span><span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span></div><button class="icon-btn" data-delete-request="${r.id}">✕</button></li>`;
+  }).join("");
+  el.requestList.innerHTML = rows || "<li class='muted'>No requests yet.</li>";
 }
 
 function renderRecurring() {
-  const recurring = visibleEvents().filter((ev) => ev.recurring !== "none");
-  el.recurringList.innerHTML = recurring.map((ev) => {
-    const memberName = displayMemberName(ev);
-    return `
-      <li>
-        <div class="list-content">
-          <span>${escapeHtml(ev.title)} <small>(${escapeHtml(ev.recurring)})</small></span>
-          <span class="member-pill" style="--member-color: ${memberColor(memberName)}">${escapeHtml(memberName)}</span>
-        </div>
-        <button class="icon-btn" data-remove-recurring="${ev.id}" title="Remove recurring activity">✕</button>
-      </li>
-    `;
-  }).join("") || `<li class="muted">No recurring activities</li>`;
-}
-
-function renderBusyInputs() {
-  el.busyHusband.value = state.busy.husband;
-  el.busyWife.value = state.busy.wife;
-  el.plannerLocation.value = state.busy.location;
-}
-
-function renderPersonTabs() {
-  const tabs = [
-    `<button class="person-tab ${state.selectedPersonId === "family" ? "active" : ""}" data-person-id="family">Family</button>`,
-    ...state.members.map((m) => `<button class="person-tab ${state.selectedPersonId === m.id ? "active" : ""}" data-person-id="${m.id}">${escapeHtml(m.name)}</button>`),
-  ];
-  el.personTabs.innerHTML = tabs.join("");
+  const rows = visibleEvents().filter((e) => e.recurring !== "none").map((ev) => {
+    const who = displayMember(ev);
+    return `<li><div class="list-content"><span>${escapeHtml(ev.title)} <small>(${escapeHtml(ev.recurring)})</small></span><span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span></div><button class="icon-btn" data-remove-recurring="${ev.id}">✕</button></li>`;
+  }).join("");
+  el.recurringList.innerHTML = rows || "<li class='muted'>No recurring activities.</li>";
 }
 
 function renderMemberList() {
-  const sorted = [...state.members].sort((a, b) => (a.role === b.role ? a.name.localeCompare(b.name) : a.role.localeCompare(b.role)));
-  el.memberList.innerHTML = sorted.map((m) => `
+  el.memberList.innerHTML = state.members.map((m) => `
     <li>
-      <div class="list-content">
-        <strong>${escapeHtml(m.name)}</strong>
-        <small>${escapeHtml(m.role)} | age ${m.age} | ${escapeHtml(m.gender)}</small>
-      </div>
-      <div class="row-actions">
-        <button class="btn btn-secondary" data-rename-member="${m.id}">Rename</button>
-        <button class="icon-btn" data-delete-member="${m.id}">✕</button>
-      </div>
+      <div class="list-content"><strong>${escapeHtml(m.name)}</strong><small>${escapeHtml(m.role)} | age ${m.age}</small></div>
+      <div class="row-actions"><button class="btn btn-secondary" data-rename-member="${m.id}">Rename</button><button class="icon-btn" data-delete-member="${m.id}">✕</button></div>
     </li>
   `).join("");
 }
 
-function renderChores() {
-  const items = visibleChores();
-  el.choreList.innerHTML = items.map((chore) => {
-    const memberName = displayMemberName(chore);
-    return `
-      <li>
-        <div class="list-content">
-          <label>
-            <input type="checkbox" data-toggle-chore="${chore.id}" ${chore.done ? "checked" : ""} />
-            <span class="${chore.done ? "done" : ""}">${escapeHtml(chore.title)} <small>(${escapeHtml(chore.frequency)})</small></span>
-          </label>
-          <span class="member-pill" style="--member-color: ${memberColor(memberName)}">${escapeHtml(memberName)}</span>
-        </div>
-        <button class="icon-btn" data-delete-chore="${chore.id}">✕</button>
-      </li>
-    `;
-  }).join("") || `<li class="muted">No chores for this view.</li>`;
+function renderPersonEvents() {
+  const upcoming = visibleEvents()
+    .slice()
+    .sort((a, b) => `${a.startDate}${a.start}`.localeCompare(`${b.startDate}${b.start}`))
+    .slice(0, 12);
+  el.personEvents.innerHTML = upcoming.map((ev) => {
+    const who = displayMember(ev);
+    return `<li><div class="list-content"><strong>${escapeHtml(ev.title)}</strong><small>${escapeHtml(ev.startDate)}${ev.allDay ? " (All Day)" : (ev.start ? ` ${escapeHtml(ev.start)}` : "")}</small></div><span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span></li>`;
+  }).join("") || "<li class='muted'>No upcoming activities for this view.</li>";
 }
 
-function populateMemberSelects() {
-  const lists = [el.eventMember, el.requestMember, el.todoMember, el.choreMember, el.icalMember];
-  const selectedMember = state.selectedPersonId !== "family" ? state.selectedPersonId : (state.members[0]?.id || "");
-  for (const select of lists) {
-    if (!select) continue;
-    select.innerHTML = state.members.map((m) => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join("");
-    if (selectedMember && findMemberById(selectedMember)) select.value = selectedMember;
-  }
+function renderChores() {
+  el.choreList.innerHTML = visibleChores().map((c) => {
+    const who = displayMember(c);
+    return `<li><div class="list-content"><label><input type="checkbox" data-toggle-chore="${c.id}" ${c.done ? "checked" : ""} /><span class="${c.done ? "done" : ""}">${escapeHtml(c.title)} <small>(${escapeHtml(c.frequency)})</small></span></label><span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span></div><button class="icon-btn" data-delete-chore="${c.id}">✕</button></li>`;
+  }).join("") || "<li class='muted'>No chores for this view.</li>";
 }
 
 function updateChoreNote() {
-  const selected = findMemberById(state.selectedPersonId);
-  el.choreGenNote.textContent = selected
-    ? `Generate chores for ${selected.name}.`
-    : "Select a person tab to generate chores.";
+  const m = findMember(state.selectedPersonId);
+  el.choreGenNote.textContent = m ? `Generate chores for ${m.name}.` : "Select a person tab to generate chores.";
 }
 
 function generatedChoresFor(member) {
-  const roleBase = member.role === "adult"
+  const base = member.role === "adult"
     ? [
-        { title: "Unload/load dishwasher", frequency: "Daily" },
-        { title: "Kitchen reset before bed", frequency: "Daily" },
+        { title: "Kitchen cleanup", frequency: "Daily" },
         { title: "Laundry cycle", frequency: "Weekly" },
-        { title: "Meal planning", frequency: "Weekly" },
+        { title: "Trash and recycling", frequency: "Weekly" },
       ]
-    : member.age <= 7
+    : member.age <= 8
       ? [
           { title: "Make bed", frequency: "Daily" },
           { title: "Put toys away", frequency: "Daily" },
-          { title: "Feed pet (with help)", frequency: "Daily" },
           { title: "Sort laundry", frequency: "Weekly" },
         ]
-      : member.age <= 12
-        ? [
-            { title: "Make bed and tidy room", frequency: "Daily" },
-            { title: "Clear dishes", frequency: "Daily" },
-            { title: "Take out trash", frequency: "Weekly" },
-            { title: "Vacuum one room", frequency: "Weekly" },
-          ]
-        : [
-            { title: "Kitchen cleanup", frequency: "Daily" },
-            { title: "Laundry full cycle", frequency: "Weekly" },
-            { title: "Bathroom clean", frequency: "Weekly" },
-            { title: "Yard/garage help", frequency: "Weekly" },
-          ];
+      : [
+          { title: "Tidy room", frequency: "Daily" },
+          { title: "Dishwasher help", frequency: "Daily" },
+          { title: "Vacuum room", frequency: "Weekly" },
+        ];
 
-  const g = member.gender.toLowerCase();
-  let bonus = [{ title: "Organize personal area", frequency: "Weekly" }];
-  if (g === "boy" || g === "man") bonus = [{ title: "Check and restock household supplies", frequency: "Weekly" }];
-  if (g === "girl" || g === "woman") bonus = [{ title: "Plan one grocery-list section", frequency: "Weekly" }];
-
-  return roleBase.concat(bonus).map((task) => ({
+  return base.map((t) => ({
     id: uid(),
-    title: task.title,
-    frequency: task.frequency,
+    title: t.title,
+    frequency: t.frequency,
     done: false,
     autogenerated: true,
     memberId: member.id,
@@ -733,102 +574,122 @@ function generatedChoresFor(member) {
   }));
 }
 
-function addDaysToIso(isoDate, days) {
-  const d = new Date(`${isoDate}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return formatDate(d);
+function setPlannerInputs() {
+  el.plannerLocation.value = state.planner.location || "";
+  el.plannerPrefs.value = state.planner.prefs || "";
+  el.partnerEmail.value = state.planner.partnerEmail || "";
 }
 
-function pad2(n) {
-  return String(n).padStart(2, "0");
+function renderPlannerIdeas() {
+  const rows = state.planner.ideas.map((idea, i) => {
+    return `
+      <li>
+        <div class="list-content">
+          <strong>${escapeHtml(idea.title || "Date Idea")}</strong>
+          <small>${escapeHtml(idea.date || "")} ${escapeHtml(idea.start_time || "")} - ${escapeHtml(idea.end_time || "")}</small>
+          <small>${escapeHtml(idea.place || "")}</small>
+          <small>${escapeHtml(idea.notes || "")}</small>
+        </div>
+        <button class="btn btn-secondary" data-choose-idea="${i}">Choose</button>
+      </li>
+    `;
+  }).join("");
+  el.plannerIdeas.innerHTML = rows || "<li class='muted'>No ideas yet. Generate suggestions.</li>";
 }
 
-function unfoldIcalLines(text) {
+async function requestDateIdeas() {
+  const payload = {
+    location: el.plannerLocation.value.trim(),
+    preferences: el.plannerPrefs.value.trim(),
+    existingEvents: state.events.map((e) => ({
+      title: e.title,
+      startDate: e.startDate,
+      endDate: e.endDate,
+      allDay: e.allDay,
+      start: e.start,
+      end: e.end,
+    })),
+  };
+
+  const r = await fetch("/api/date-ideas", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!r.ok) throw new Error("Date ideas request failed");
+  return r.json();
+}
+
+function parseIcalLines(text) {
   const raw = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
   const lines = [];
-  for (const line of raw) {
-    if ((line.startsWith(" ") || line.startsWith("\t")) && lines.length) {
-      lines[lines.length - 1] += line.slice(1);
-    } else {
-      lines.push(line);
-    }
+  for (const ln of raw) {
+    if ((ln.startsWith(" ") || ln.startsWith("\t")) && lines.length) lines[lines.length - 1] += ln.slice(1);
+    else lines.push(ln);
   }
   return lines;
 }
 
-function parseIcalDatePart(value) {
+function parseIcalDate(value) {
   if (!/^\d{8}$/.test(value)) return "";
   return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
 }
 
-function parseIcalDateTimePart(value) {
+function parseIcalDateTime(value) {
   const m = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?Z?$/);
   if (!m) return { date: "", time: "" };
-  const year = Number(m[1]);
-  const month = Number(m[2]) - 1;
-  const day = Number(m[3]);
-  const hour = Number(m[4]);
-  const minute = Number(m[5]);
-  const second = Number(m[6] || 0);
-  const isUtc = value.endsWith("Z");
-  const d = isUtc
-    ? new Date(Date.UTC(year, month, day, hour, minute, second))
-    : new Date(year, month, day, hour, minute, second);
-  return { date: formatDate(d), time: `${pad2(d.getHours())}:${pad2(d.getMinutes())}` };
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  const h = Number(m[4]);
+  const mi = Number(m[5]);
+  const sec = Number(m[6] || 0);
+  const z = value.endsWith("Z");
+  const dt = z ? new Date(Date.UTC(y, mo, d, h, mi, sec)) : new Date(y, mo, d, h, mi, sec);
+  return { date: formatDate(dt), time: `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}` };
 }
 
-function parseIcalText(text) {
-  const lines = unfoldIcalLines(text);
-  const events = [];
-  let current = null;
+function parseIcal(text) {
+  const lines = parseIcalLines(text);
+  const out = [];
+  let cur = null;
 
   for (const line of lines) {
-    if (line === "BEGIN:VEVENT") {
-      current = {};
-      continue;
-    }
-    if (line === "END:VEVENT") {
-      if (current) events.push(current);
-      current = null;
-      continue;
-    }
-    if (!current || !line.includes(":")) continue;
-
+    if (line === "BEGIN:VEVENT") { cur = {}; continue; }
+    if (line === "END:VEVENT") { if (cur) out.push(cur); cur = null; continue; }
+    if (!cur || !line.includes(":")) continue;
     const idx = line.indexOf(":");
     const left = line.slice(0, idx);
     const value = line.slice(idx + 1);
-    const [keyRaw, ...paramParts] = left.split(";");
-    const key = keyRaw.toUpperCase();
-    const params = paramParts.join(";").toUpperCase();
-    current[key] = { value, params };
+    const [key, ...params] = left.split(";");
+    cur[key.toUpperCase()] = { value, params: params.join(";").toUpperCase() };
   }
 
-  return events.map((evt) => {
-    const summary = evt.SUMMARY?.value || "Imported Event";
-    const dtStart = evt.DTSTART?.value || "";
-    const dtEnd = evt.DTEND?.value || "";
-    const startIsDate = evt.DTSTART?.params?.includes("VALUE=DATE");
-    const endIsDate = evt.DTEND?.params?.includes("VALUE=DATE");
-    const rrule = evt.RRULE?.value || "";
+  return out.map((e) => {
+    const summary = e.SUMMARY?.value || "Imported Event";
+    const start = e.DTSTART?.value || "";
+    const end = e.DTEND?.value || "";
+    const startDateOnly = e.DTSTART?.params?.includes("VALUE=DATE") || /^\d{8}$/.test(start);
+    const endDateOnly = e.DTEND?.params?.includes("VALUE=DATE") || /^\d{8}$/.test(end);
+    const rrule = e.RRULE?.value || "";
 
     let startDate = "";
     let endDate = "";
     let startTime = "";
     let endTime = "";
 
-    if (startIsDate || /^\d{8}$/.test(dtStart)) {
-      startDate = parseIcalDatePart(dtStart);
-      endDate = dtEnd ? parseIcalDatePart(dtEnd) : startDate;
-      if (dtEnd && (endIsDate || /^\d{8}$/.test(dtEnd))) {
-        endDate = addDaysToIso(endDate, -1);
-      }
+    if (startDateOnly) {
+      startDate = parseIcalDate(start);
+      endDate = end ? parseIcalDate(end) : startDate;
+      if (end && endDateOnly) endDate = addDaysIso(endDate, -1);
     } else {
-      const start = parseIcalDateTimePart(dtStart);
-      const end = dtEnd ? parseIcalDateTimePart(dtEnd) : start;
-      startDate = start.date;
-      endDate = end.date || start.date;
-      startTime = start.time;
-      endTime = end.time;
+      const s = parseIcalDateTime(start);
+      const x = end ? parseIcalDateTime(end) : s;
+      startDate = s.date;
+      endDate = x.date || s.date;
+      startTime = s.time;
+      endTime = x.time;
     }
 
     let recurring = "none";
@@ -837,211 +698,45 @@ function parseIcalText(text) {
     if (freq === "WEEKLY") recurring = "weekly";
     if (freq === "MONTHLY") recurring = "monthly";
 
-    return {
-      title: summary,
-      startDate,
-      endDate: endDate || startDate,
-      start: startTime,
-      end: endTime,
-      recurring,
-    };
-  }).filter((ev) => ev.startDate);
+    return { title: summary, startDate, endDate: endDate || startDate, start: startTime, end: endTime, recurring, allDay: !startTime && !endTime };
+  }).filter((x) => x.startDate);
 }
 
-function escapeIcalText(text) {
-  return String(text || "")
-    .replace(/\\/g, "\\\\")
-    .replace(/\n/g, "\\n")
-    .replace(/,/g, "\\,")
-    .replace(/;/g, "\\;");
+function escapeIcal(s) {
+  return String(s || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
 }
 
-function toIcalDate(isoDate) {
-  return isoDate.replace(/-/g, "");
+function toIcalDate(iso) { return iso.replace(/-/g, ""); }
+function toIcalDateTime(iso, t) {
+  const hh = (t || "00:00").slice(0, 2);
+  const mm = (t || "00:00").slice(3, 5);
+  return `${toIcalDate(iso)}T${hh}${mm}00`;
 }
 
-function toIcalDateTime(isoDate, time) {
-  const hh = (time || "00:00").slice(0, 2);
-  const mm = (time || "00:00").slice(3, 5);
-  return `${toIcalDate(isoDate)}T${hh}${mm}00`;
-}
-
-function exportIcalText(rows) {
+function exportIcal(rows) {
   const now = new Date();
-  const stamp = `${now.getUTCFullYear()}${pad2(now.getUTCMonth() + 1)}${pad2(now.getUTCDate())}T${pad2(now.getUTCHours())}${pad2(now.getUTCMinutes())}${pad2(now.getUTCSeconds())}Z`;
-  const lines = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//Family Calendar//EN",
-    "CALSCALE:GREGORIAN",
-  ];
+  const stamp = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}T${String(now.getUTCHours()).padStart(2, "0")}${String(now.getUTCMinutes()).padStart(2, "0")}${String(now.getUTCSeconds()).padStart(2, "0")}Z`;
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//FamCal//EN", "CALSCALE:GREGORIAN"];
 
   for (const ev of rows) {
-    const memberName = displayMemberName(ev);
-    const summary = `${ev.title} (${memberName})`;
     lines.push("BEGIN:VEVENT");
-    lines.push(`UID:${ev.id}@familycalendar.local`);
+    lines.push(`UID:${ev.id}@famcal.local`);
     lines.push(`DTSTAMP:${stamp}`);
-    if (ev.start || ev.end) {
-      const dtStart = toIcalDateTime(ev.startDate, ev.start || "09:00");
-      const dtEnd = toIcalDateTime(ev.endDate || ev.startDate, ev.end || ev.start || "10:00");
-      lines.push(`DTSTART:${dtStart}`);
-      lines.push(`DTEND:${dtEnd}`);
-    } else {
+    if (ev.allDay) {
       lines.push(`DTSTART;VALUE=DATE:${toIcalDate(ev.startDate)}`);
-      lines.push(`DTEND;VALUE=DATE:${toIcalDate(addDaysToIso(ev.endDate || ev.startDate, 1))}`);
+      lines.push(`DTEND;VALUE=DATE:${toIcalDate(addDaysIso(ev.endDate || ev.startDate, 1))}`);
+    } else {
+      lines.push(`DTSTART:${toIcalDateTime(ev.startDate, ev.start || "09:00")}`);
+      lines.push(`DTEND:${toIcalDateTime(ev.endDate || ev.startDate, ev.end || ev.start || "10:00")}`);
     }
     if (ev.recurring === "daily") lines.push("RRULE:FREQ=DAILY");
     if (ev.recurring === "weekly") lines.push("RRULE:FREQ=WEEKLY");
     if (ev.recurring === "monthly") lines.push("RRULE:FREQ=MONTHLY");
-    lines.push(`SUMMARY:${escapeIcalText(summary)}`);
+    lines.push(`SUMMARY:${escapeIcal(ev.title)}`);
     lines.push("END:VEVENT");
   }
-
   lines.push("END:VCALENDAR");
-  return lines.join("\\r\\n");
-}
-
-function parseBusyBlocks(text) {
-  const blocks = [];
-  const parts = text.split(",").map((v) => v.trim()).filter(Boolean);
-  for (const part of parts) {
-    const m = part.match(/^(sun|mon|tue|wed|thu|fri|sat)\s+(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/i);
-    if (!m) continue;
-    const day = DAY_INDEX[m[1].toLowerCase()];
-    const start = Number(m[2]) * 60 + Number(m[3]);
-    const end = Number(m[4]) * 60 + Number(m[5]);
-    if (Number.isFinite(day) && start < end) blocks.push({ day, start, end });
-  }
-  return blocks;
-}
-
-function parseTimeToMinutes(value) {
-  if (!value || !value.includes(":")) return null;
-  const [h, m] = value.split(":").map(Number);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-  return h * 60 + m;
-}
-
-function overlaps(startA, endA, startB, endB) {
-  return !(endA <= startB || startA >= endB);
-}
-
-function eventBlocksForDate(dateObj) {
-  return state.events
-    .filter((ev) => occursOnDate(ev, dateObj, formatDate(dateObj)))
-    .map((ev) => {
-      const s = parseTimeToMinutes(ev.start);
-      const e = parseTimeToMinutes(ev.end);
-      if (s === null && e === null) return { start: 0, end: 24 * 60 };
-      if (s !== null && e === null) return { start: s, end: Math.min(s + 90, 24 * 60) };
-      if (s === null && e !== null) return { start: 0, end: e };
-      return { start: s, end: e > s ? e : 24 * 60 };
-    });
-}
-
-function scanBestDateSlots() {
-  const busyHusband = parseBusyBlocks(state.busy.husband);
-  const busyWife = parseBusyBlocks(state.busy.wife);
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const candidates = [];
-
-  for (let i = 0; i < 28; i += 1) {
-    const day = new Date(now);
-    day.setDate(now.getDate() + i);
-    const weekday = day.getDay();
-    const dayBusy = busyHusband.concat(busyWife)
-      .filter((b) => b.day === weekday)
-      .map((b) => ({ start: b.start, end: b.end }));
-    const blocked = dayBusy.concat(eventBlocksForDate(day));
-
-    for (const slot of SLOT_TEMPLATES) {
-      if (blocked.some((b) => overlaps(b.start, b.end, slot.start, slot.end))) continue;
-      let score = slot.weight;
-      if (weekday === 5 || weekday === 6) score += 3;
-      if (weekday === 4) score += 2;
-      score -= i * 0.03;
-      candidates.push({ date: new Date(day), slot, score });
-    }
-  }
-
-  return candidates.sort((a, b) => b.score - a.score).slice(0, 6);
-}
-
-function placeName(displayName) {
-  return displayName.split(",")[0] || displayName;
-}
-
-function mapLink(lat, lon) {
-  return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`;
-}
-
-async function fetchLocalIdeas(location) {
-  const loc = location.trim();
-  if (!loc) return { error: "Add a city and state to fetch local ideas." };
-
-  const fetchJson = async (url) => {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error("Failed");
-    return resp.json();
-  };
-
-  try {
-    const restaurantUrl = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=${encodeURIComponent(`restaurants in ${loc}`)}`;
-    const venueUrl = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=${encodeURIComponent(`things to do in ${loc}`)}`;
-    const [restaurantsRaw, venuesRaw] = await Promise.all([fetchJson(restaurantUrl), fetchJson(venueUrl)]);
-
-    const seen = new Set();
-    const uniq = (rows, type) => rows
-      .map((row) => ({ type, name: placeName(row.display_name || "Unknown"), link: mapLink(row.lat, row.lon) }))
-      .filter((p) => {
-        const k = p.name.toLowerCase();
-        if (seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      })
-      .slice(0, 4);
-
-    return { restaurants: uniq(restaurantsRaw, "Restaurant"), venues: uniq(venuesRaw, "Venue") };
-  } catch (_err) {
-    return { error: "Could not fetch local places right now." };
-  }
-}
-
-async function suggestDates() {
-  state.busy.husband = el.busyHusband.value.trim();
-  state.busy.wife = el.busyWife.value.trim();
-  state.busy.location = el.plannerLocation.value.trim();
-
-  const bestSlots = scanBestDateSlots();
-  el.plannerOutput.innerHTML = bestSlots.length
-    ? bestSlots.map((item) => {
-      const startH = String(Math.floor(item.slot.start / 60)).padStart(2, "0");
-      const startM = String(item.slot.start % 60).padStart(2, "0");
-      const endH = String(Math.floor(item.slot.end / 60)).padStart(2, "0");
-      const endM = String(item.slot.end % 60).padStart(2, "0");
-      return `<li><strong>${escapeHtml(item.slot.label)}</strong> | ${item.date.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })} | ${startH}:${startM}-${endH}:${endM}</li>`;
-    }).join("")
-    : "<li>No open date windows found in next 4 weeks.</li>";
-
-  el.plannerPlaces.innerHTML = "<li>Loading local ideas...</li>";
-  const places = await fetchLocalIdeas(state.busy.location);
-  if (places.error) {
-    el.plannerPlaces.innerHTML = `<li>${escapeHtml(places.error)}</li>`;
-    await saveState();
-    return;
-  }
-
-  const rows = [];
-  for (const p of places.restaurants || []) {
-    rows.push(`<li><div class="list-content"><span><strong>${escapeHtml(p.name)}</strong><br><small>${escapeHtml(p.type)}</small></span><a href="${p.link}" target="_blank" rel="noreferrer">Map</a></div></li>`);
-  }
-  for (const p of places.venues || []) {
-    rows.push(`<li><div class="list-content"><span><strong>${escapeHtml(p.name)}</strong><br><small>${escapeHtml(p.type)}</small></span><a href="${p.link}" target="_blank" rel="noreferrer">Map</a></div></li>`);
-  }
-  el.plannerPlaces.innerHTML = rows.join("") || "<li>No places found.</li>";
-  await saveState();
+  return lines.join("\r\n");
 }
 
 function escapeHtml(str) {
@@ -1053,61 +748,58 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
-function memberFromSelect(selectEl) {
-  const member = findMemberById(selectEl.value);
-  return member || state.members[0] || null;
+function selectedMemberFrom(select) {
+  return findMember(select.value) || state.members[0] || null;
 }
+
+document.getElementById("eventAllDay").addEventListener("change", () => {
+  el.eventTimeRow.classList.toggle("hidden", el.eventAllDay.checked);
+});
 
 document.getElementById("eventForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const title = document.getElementById("eventTitle").value.trim();
   const startDate = document.getElementById("eventStartDate").value;
-  const endRaw = document.getElementById("eventEndDate").value;
-  const member = memberFromSelect(el.eventMember);
-  if (!title || !startDate || !endRaw || !member) return;
+  const endDateRaw = document.getElementById("eventEndDate").value;
+  const allDay = el.eventAllDay.checked;
+  const owner = selectedMemberFrom(el.eventMember);
+  const involved = Array.from(document.querySelectorAll("[data-involved-member]:checked")).map((x) => x.value);
+  if (!title || !startDate || !endDateRaw || !owner) return;
 
   state.events.push({
     id: uid(),
     title,
     startDate,
-    endDate: endRaw < startDate ? startDate : endRaw,
-    start: document.getElementById("eventStart").value,
-    end: document.getElementById("eventEnd").value,
-    memberId: member.id,
-    memberName: member.name,
+    endDate: endDateRaw < startDate ? startDate : endDateRaw,
+    allDay,
+    start: allDay ? "" : document.getElementById("eventStart").value,
+    end: allDay ? "" : document.getElementById("eventEnd").value,
+    memberId: owner.id,
+    memberName: owner.name,
+    involvedMemberIds: Array.from(new Set(involved.concat(owner.id))),
     recurring: document.getElementById("eventRecurring").value,
   });
 
   e.target.reset();
+  el.eventTimeRow.classList.remove("hidden");
+  renderInvolvedChecklist();
   populateMemberSelects();
   await saveState();
   renderCalendar();
   renderRecurring();
+  renderPersonEvents();
 });
 
 document.getElementById("requestForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = document.getElementById("requestInput").value.trim();
-  const member = memberFromSelect(el.requestMember);
+  const member = selectedMemberFrom(el.requestMember);
   if (!text || !member) return;
   state.requests.unshift({ id: uid(), text, memberId: member.id, memberName: member.name });
   e.target.reset();
   populateMemberSelects();
   await saveState();
   renderRequests();
-});
-
-document.getElementById("todoForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const text = document.getElementById("todoInput").value.trim();
-  const mustDoDate = document.getElementById("todoMustDoDate").value;
-  const member = memberFromSelect(el.todoMember);
-  if (!text || !mustDoDate || !member) return;
-  state.todos.unshift({ id: uid(), text, mustDoDate, done: false, memberId: member.id, memberName: member.name });
-  e.target.reset();
-  populateMemberSelects();
-  await saveState();
-  renderTodos();
 });
 
 document.getElementById("memberForm").addEventListener("submit", async (e) => {
@@ -1117,21 +809,20 @@ document.getElementById("memberForm").addEventListener("submit", async (e) => {
   const age = Number(document.getElementById("memberAge").value);
   const gender = document.getElementById("memberGender").value;
   if (!name || !role || !age || !gender) return;
-
   state.members.push({ id: uid(), name, role, age, gender });
   e.target.reset();
   await saveState();
   renderPersonTabs();
   populateMemberSelects();
+  renderInvolvedChecklist();
   renderMemberList();
-  updateChoreNote();
 });
 
 document.getElementById("choreForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const title = document.getElementById("choreInput").value.trim();
   const frequency = document.getElementById("choreFrequency").value;
-  const member = memberFromSelect(el.choreMember);
+  const member = selectedMemberFrom(el.choreMember);
   if (!title || !member) return;
 
   state.chores.unshift({
@@ -1150,48 +841,62 @@ document.getElementById("choreForm").addEventListener("submit", async (e) => {
 });
 
 document.getElementById("generateChoresBtn").addEventListener("click", async () => {
-  const member = findMemberById(state.selectedPersonId);
+  const member = findMember(state.selectedPersonId);
   if (!member) {
-    alert("Select a specific person tab first.");
+    alert("Select a person tab first.");
     return;
   }
-
   state.chores = state.chores.filter((c) => !(c.memberId === member.id && c.autogenerated));
   state.chores.unshift(...generatedChoresFor(member));
   await saveState();
   renderChores();
 });
 
+document.getElementById("plannerForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  state.planner.location = el.plannerLocation.value.trim();
+  state.planner.prefs = el.plannerPrefs.value.trim();
+  state.planner.partnerEmail = el.partnerEmail.value.trim();
+  el.plannerIdeas.innerHTML = "<li>Generating ideas...</li>";
+
+  try {
+    const data = await requestDateIdeas();
+    state.planner.ideas = Array.isArray(data.ideas) ? data.ideas : [];
+  } catch (_err) {
+    state.planner.ideas = [];
+    el.plannerIdeas.innerHTML = "<li>Could not generate ideas right now. Check OpenAI config.</li>";
+    await saveState();
+    return;
+  }
+
+  await saveState();
+  renderPlannerIdeas();
+});
+
 document.getElementById("icalForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const fileInput = document.getElementById("icalFile");
-  const file = fileInput.files && fileInput.files[0];
-  const member = memberFromSelect(el.icalMember);
+  const file = document.getElementById("icalFile").files?.[0];
+  const member = selectedMemberFrom(el.icalMember);
   if (!file || !member) return;
-
   const text = await file.text();
-  const incoming = parseIcalText(text);
+  const incoming = parseIcal(text);
   let merged = 0;
 
   for (const ev of incoming) {
-    const duplicate = state.events.some((existing) =>
-      existing.title === ev.title &&
-      existing.startDate === ev.startDate &&
-      (existing.start || "") === (ev.start || "") &&
-      existing.memberId === member.id
-    );
-    if (duplicate) continue;
-
+    const exists = state.events.some((x) => x.memberId === member.id && x.title === ev.title && x.startDate === ev.startDate && (x.start || "") === (ev.start || ""));
+    if (exists) continue;
     state.events.push({
       id: uid(),
       title: ev.title,
       startDate: ev.startDate,
-      endDate: ev.endDate || ev.startDate,
-      start: ev.start || "",
-      end: ev.end || "",
+      endDate: ev.endDate,
+      allDay: ev.allDay,
+      start: ev.start,
+      end: ev.end,
       memberId: member.id,
       memberName: member.name,
-      recurring: ev.recurring || "none",
+      involvedMemberIds: [member.id],
+      recurring: ev.recurring,
     });
     merged += 1;
   }
@@ -1199,18 +904,19 @@ document.getElementById("icalForm").addEventListener("submit", async (e) => {
   await saveState();
   renderCalendar();
   renderRecurring();
-  fileInput.value = "";
-  alert(`Merged ${merged} event${merged === 1 ? "" : "s"} from iCal.`);
+  renderPersonEvents();
+  document.getElementById("icalFile").value = "";
+  alert(`Merged ${merged} event${merged === 1 ? "" : "s"}.`);
 });
 
 document.getElementById("exportIcalBtn").addEventListener("click", () => {
   const rows = visibleEvents();
-  const text = exportIcalText(rows);
+  const text = exportIcal(rows);
   const blob = new Blob([text], { type: "text/calendar;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `family-calendar-${formatDate(new Date())}.ics`;
+  a.download = `famcal-${formatDate(new Date())}.ics`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -1225,24 +931,6 @@ el.requestList.addEventListener("click", async (e) => {
   renderRequests();
 });
 
-el.todoList.addEventListener("click", async (e) => {
-  const id = e.target.dataset.deleteTodo;
-  if (!id) return;
-  state.todos = state.todos.filter((t) => t.id !== id);
-  await saveState();
-  renderTodos();
-});
-
-el.todoList.addEventListener("change", async (e) => {
-  const id = e.target.dataset.toggleTodo;
-  if (!id) return;
-  const row = state.todos.find((t) => t.id === id);
-  if (!row) return;
-  row.done = !!e.target.checked;
-  await saveState();
-  renderTodos();
-});
-
 el.recurringList.addEventListener("click", async (e) => {
   const id = e.target.dataset.removeRecurring;
   if (!id) return;
@@ -1250,32 +938,22 @@ el.recurringList.addEventListener("click", async (e) => {
   await saveState();
   renderCalendar();
   renderRecurring();
+  renderPersonEvents();
 });
 
 el.memberList.addEventListener("click", async (e) => {
   const renameId = e.target.dataset.renameMember;
   if (renameId) {
-    const member = findMemberById(renameId);
-    if (!member) return;
-    const next = prompt("New name:", member.name);
+    const m = findMember(renameId);
+    if (!m) return;
+    const next = prompt("New name:", m.name);
     if (!next || !next.trim()) return;
-    member.name = next.trim();
-
-    for (const set of [state.events, state.requests, state.todos, state.chores]) {
-      for (const item of set) {
-        if (item.memberId === member.id) item.memberName = member.name;
-      }
+    m.name = next.trim();
+    for (const set of [state.events, state.requests, state.chores]) {
+      for (const item of set) if (item.memberId === m.id) item.memberName = m.name;
     }
-
     await saveState();
-    renderPersonTabs();
-    populateMemberSelects();
-    renderMemberList();
-    renderCalendar();
-    renderRequests();
-    renderTodos();
-    renderRecurring();
-    renderChores();
+    render();
     return;
   }
 
@@ -1287,11 +965,9 @@ el.memberList.addEventListener("click", async (e) => {
   }
 
   state.members = state.members.filter((m) => m.id !== deleteId);
-  state.events = state.events.filter((x) => x.memberId !== deleteId);
+  state.events = state.events.filter((x) => x.memberId !== deleteId).map((x) => ({ ...x, involvedMemberIds: (x.involvedMemberIds || []).filter((id) => id !== deleteId) }));
   state.requests = state.requests.filter((x) => x.memberId !== deleteId);
-  state.todos = state.todos.filter((x) => x.memberId !== deleteId);
   state.chores = state.chores.filter((x) => x.memberId !== deleteId);
-
   if (state.selectedPersonId === deleteId) state.selectedPersonId = "family";
 
   await saveState();
@@ -1314,6 +990,40 @@ el.choreList.addEventListener("change", async (e) => {
   item.done = !!e.target.checked;
   await saveState();
   renderChores();
+  if (state.view === "day") renderCalendar();
+});
+
+el.plannerIdeas.addEventListener("click", async (e) => {
+  const idx = e.target.dataset.chooseIdea;
+  if (idx === undefined) return;
+  const idea = state.planner.ideas[Number(idx)];
+  if (!idea) return;
+
+  const owner = state.members.find((m) => m.role === "adult") || state.members[0];
+  if (!owner) return;
+
+  state.events.push({
+    id: uid(),
+    title: idea.title || "Date Night",
+    startDate: idea.date,
+    endDate: idea.date,
+    allDay: false,
+    start: idea.start_time || "19:00",
+    end: idea.end_time || "21:00",
+    memberId: owner.id,
+    memberName: owner.name,
+    involvedMemberIds: state.members.filter((m) => m.role === "adult").map((m) => m.id),
+    recurring: "none",
+  });
+
+  await saveState();
+  renderCalendar();
+  renderPersonEvents();
+  alert("Date added to calendar.");
+
+  if (state.planner.partnerEmail) {
+    alert("Date added to calendar. Email sending is currently disabled.");
+  }
 });
 
 el.grid.addEventListener("click", (e) => {
@@ -1327,11 +1037,11 @@ el.grid.addEventListener("click", (e) => {
 });
 
 el.grid.addEventListener("change", async (e) => {
-  const choreId = e.target.dataset.toggleChore;
-  if (!choreId) return;
-  const item = state.chores.find((c) => c.id === choreId);
-  if (!item) return;
-  item.done = !!e.target.checked;
+  const id = e.target.dataset.toggleChore;
+  if (!id) return;
+  const c = state.chores.find((x) => x.id === id);
+  if (!c) return;
+  c.done = !!e.target.checked;
   await saveState();
   renderCalendar();
   renderChores();
@@ -1343,11 +1053,11 @@ el.personTabs.addEventListener("click", (e) => {
   setSelectedPerson(id);
 });
 
-el.topTabs.forEach((btn) => {
-  btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
+el.mainTabs.forEach((b) => {
+  b.addEventListener("click", () => setMainTab(b.dataset.tab));
 });
 
-document.getElementById("planDateBtn").addEventListener("click", suggestDates);
+document.getElementById("planDateBtn")?.addEventListener("click", () => {});
 document.getElementById("prevBtn").addEventListener("click", () => shiftDate(-1));
 document.getElementById("nextBtn").addEventListener("click", () => shiftDate(1));
 document.getElementById("todayBtn").addEventListener("click", () => {
@@ -1357,40 +1067,40 @@ document.getElementById("todayBtn").addEventListener("click", () => {
 
 document.getElementById("shareBtn").addEventListener("click", async () => {
   if (!state.roomId) {
-    state.roomId = roomId();
+    state.roomId = newRoomId();
     const url = new URL(window.location.href);
     url.searchParams.set("room", state.roomId);
     url.searchParams.delete("data");
     window.history.replaceState({}, "", url.toString());
     await saveState();
-    startSyncPolling();
+    startPolling();
   }
 
   const link = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(state.roomId)}`;
   try {
     await navigator.clipboard.writeText(link);
-    alert("Live share link copied. Anyone with this link can view and update this family calendar.");
+    alert("Live share link copied.");
   } catch (_err) {
     prompt("Copy this live share link:", link);
   }
 });
 
-el.viewBtns.forEach((btn) => {
-  btn.addEventListener("click", () => setView(btn.dataset.view));
-});
+el.viewBtns.forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
 
 function render() {
-  setActiveTab(state.activeTab, false);
+  setMainTab(state.activeTab, false);
   renderPersonTabs();
   populateMemberSelects();
+  renderInvolvedChecklist();
   renderCalendar();
   renderRequests();
-  renderTodos();
   renderRecurring();
-  renderBusyInputs();
   renderMemberList();
+  renderPersonEvents();
   renderChores();
   updateChoreNote();
+  setPlannerInputs();
+  renderPlannerIdeas();
 }
 
 (async () => {
