@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Family Calendar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Shared family planning</p>
+        <h1>Family Calendar</h1>
+      </div>
+      <div class="topbar-actions">
+        <button id="todayBtn" class="btn btn-secondary">Today</button>
+        <button id="shareBtn" class="btn btn-primary">Copy Share Link</button>
+      </div>
+    </header>
+
+    <nav class="tabbar card">
+      <button class="tab-btn active" data-tab="calendar">Calendar</button>
+      <button class="tab-btn" data-tab="chores">Chore Lists</button>
+    </nav>
+
+    <section class="card">
+      <h3>Family Views</h3>
+      <div id="personTabs" class="person-tabs"></div>
+      <p class="hint">Select Family to see everyone or choose a person to see weekly/monthly activities and chores for that person.</p>
+    </section>
+
+    <main id="calendarPage" class="layout page active">
+      <section class="calendar-panel card">
+        <div class="calendar-controls">
+          <div class="date-nav">
+            <button id="prevBtn" class="btn btn-secondary">◀</button>
+            <h2 id="currentLabel">Month YYYY</h2>
+            <button id="nextBtn" class="btn btn-secondary">▶</button>
+          </div>
+          <div class="view-switch">
+            <button class="view-btn active" data-view="day">Day</button>
+            <button class="view-btn" data-view="week">Week</button>
+            <button class="view-btn" data-view="month">Month</button>
+            <button class="view-btn" data-view="year">Year</button>
+          </div>
+        </div>
+        <div id="calendarGrid" class="calendar-grid"></div>
+      </section>
+
+      <aside class="side-panel">
+        <section class="card">
+          <h3>Add Event</h3>
+          <form id="eventForm" class="stack">
+            <input type="text" id="eventTitle" placeholder="Event title" required />
+            <label>
+              Start Date
+              <input type="date" id="eventStartDate" required />
+            </label>
+            <label>
+              End Date
+              <input type="date" id="eventEndDate" required />
+            </label>
+            <label>
+              Start
+              <input type="time" id="eventStart" />
+            </label>
+            <label>
+              End
+              <input type="time" id="eventEnd" />
+            </label>
+            <label>
+              Family Member
+              <select id="eventMember" required></select>
+            </label>
+            <label>
+              Recurrence
+              <select id="eventRecurring">
+                <option value="none">None</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </label>
+            <button class="btn btn-primary" type="submit">Add Event</button>
+          </form>
+        </section>
+
+        <section class="card">
+          <h3>iCal Merge</h3>
+          <form id="icalForm" class="stack">
+            <label>
+              Import into member
+              <select id="icalMember" required></select>
+            </label>
+            <input type="file" id="icalFile" accept=".ics,.ical,text/calendar" required />
+            <button class="btn btn-secondary" type="submit">Merge .ics/.ical</button>
+          </form>
+          <button id="exportIcalBtn" class="btn btn-primary">Export Current View .ics</button>
+        </section>
+
+        <section class="card">
+          <h3>Requests</h3>
+          <form id="requestForm" class="inline-form">
+            <input type="text" id="requestInput" placeholder="Add request" required />
+            <select id="requestMember" required></select>
+            <button class="btn btn-secondary" type="submit">Add</button>
+          </form>
+          <ul id="requestList" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <h3>High Importance To-Do</h3>
+          <form id="todoForm" class="inline-form">
+            <input type="text" id="todoInput" placeholder="Add top priority task" required />
+            <input type="date" id="todoMustDoDate" required />
+            <select id="todoMember" required></select>
+            <button class="btn btn-secondary" type="submit">Add</button>
+          </form>
+          <ul id="todoList" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <h3>Recurring Activities</h3>
+          <ul id="recurringList" class="list"></ul>
+        </section>
+
+        <section class="card ai-card">
+          <h3>AI Date Planner</h3>
+          <p class="hint">Paste busy times, scan the next 4 weeks, and get local place ideas.</p>
+          <label>
+            Husband busy blocks
+            <textarea id="busyHusband" rows="3" placeholder="Example: Tue 18:00-20:00, Thu 19:00-21:00"></textarea>
+          </label>
+          <label>
+            Wife busy blocks
+            <textarea id="busyWife" rows="3" placeholder="Example: Mon 17:00-19:00, Wed 18:00-20:00"></textarea>
+          </label>
+          <label>
+            City and State
+            <input type="text" id="plannerLocation" placeholder="Example: Austin, TX" />
+          </label>
+          <button id="planDateBtn" class="btn btn-primary">Find Best Days + Local Ideas</button>
+          <ul id="plannerOutput" class="list"></ul>
+          <h4>Local Suggestions</h4>
+          <ul id="plannerPlaces" class="list"></ul>
+        </section>
+      </aside>
+    </main>
+
+    <main id="choresPage" class="page">
+      <section class="layout chores-layout">
+        <section class="card">
+          <h2>Household Members</h2>
+          <form id="memberForm" class="inline-form">
+            <input type="text" id="memberName" placeholder="Name" required />
+            <select id="memberRole" required>
+              <option value="adult">Adult</option>
+              <option value="child">Child</option>
+            </select>
+            <input type="number" id="memberAge" min="1" max="99" placeholder="Age" required />
+            <select id="memberGender" required>
+              <option value="girl">Girl</option>
+              <option value="boy">Boy</option>
+              <option value="woman">Woman</option>
+              <option value="man">Man</option>
+              <option value="non-binary">Non-binary</option>
+            </select>
+            <button class="btn btn-primary" type="submit">Add Person</button>
+          </form>
+          <ul id="memberList" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <h2>Chores</h2>
+          <form id="choreForm" class="inline-form">
+            <input type="text" id="choreInput" placeholder="Add chore" required />
+            <select id="choreFrequency">
+              <option value="Daily">Daily</option>
+              <option value="Weekly">Weekly</option>
+              <option value="Monthly">Monthly</option>
+            </select>
+            <select id="choreMember" required></select>
+            <button class="btn btn-secondary" type="submit">Add</button>
+          </form>
+          <button id="generateChoresBtn" class="btn btn-primary">AI Generate Chores For Selected Tab</button>
+          <p id="choreGenNote" class="hint">Select a person tab to generate chores.</p>
+          <ul id="choreList" class="list chore-plan-list"></ul>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
