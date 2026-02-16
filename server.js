@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 
 const PORT = Number(process.env.PORT || 8080);
+const HOST = "0.0.0.0";
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, ".data");
 
@@ -136,6 +137,6 @@ const server = http.createServer((req, res) => {
   serveFile(url.pathname, res);
 });
 
-server.listen(PORT, () => {
-  console.log(`Family calendar server running on http://localhost:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`Family calendar server running on http://${HOST}:${PORT}`);
 });
