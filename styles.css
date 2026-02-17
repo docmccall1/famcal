@@ -126,6 +126,304 @@ h1, h2, h3, h4, legend {
   padding: 1rem;
 }
 
+.chores-redesign {
+  gap: 0.95rem;
+}
+
+.chores-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 1rem;
+  align-items: center;
+  background: linear-gradient(135deg, #ffffff 0%, #f4f9ff 60%, #eef6ff 100%);
+}
+
+.chores-hero.late-critical {
+  border-color: #f3b46f;
+  box-shadow: 0 0 0 1px rgba(211, 128, 39, 0.2), 0 10px 25px rgba(211, 128, 39, 0.12);
+}
+
+.chores-progress-track {
+  width: 100%;
+  height: 11px;
+  border-radius: 999px;
+  background: #e8effa;
+  overflow: hidden;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.chores-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1f8f7d, #26b3a0);
+  transition: width 280ms ease;
+}
+
+.chores-ring {
+  position: relative;
+  width: 126px;
+  height: 126px;
+}
+
+.chores-ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.ring-bg {
+  fill: none;
+  stroke: #e8effa;
+  stroke-width: 10;
+}
+
+.ring-fg {
+  fill: none;
+  stroke: #0f6c7d;
+  stroke-width: 10;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 320ms ease;
+}
+
+.chores-ring-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 1.2rem;
+  font-weight: 800;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.chores-hero-ring-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+}
+
+.chores-toolbar {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.chores-toolbar-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.chores-subtabs {
+  margin: 0;
+  padding: 0.28rem;
+  background: #eef4ff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.chores-subtabs .tab-btn {
+  border-radius: 8px;
+  background: transparent;
+  border-color: transparent;
+  min-height: 42px;
+}
+
+.chores-subtabs .tab-btn.active {
+  background: #ffffff;
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.chores-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.8rem;
+}
+
+.chores-person-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fff, #f9fcff);
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.chores-person-card > header {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.chores-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  border: 1px solid color-mix(in oklab, var(--member-color), white 76%);
+  color: var(--member-color);
+  background: color-mix(in oklab, var(--member-color), white 88%);
+}
+
+.priority-group {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.priority-group h5 {
+  margin: 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #4e688d;
+}
+
+.chores-rows li.chore-row {
+  padding: 0.35rem 0.45rem;
+}
+
+.chore-row details summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.chore-row details summary::-webkit-details-marker {
+  display: none;
+}
+
+.chore-row-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chore-title-wrap {
+  display: grid;
+  gap: 0.14rem;
+}
+
+.chore-status-pill {
+  border-radius: 999px;
+  padding: 0.18rem 0.54rem;
+  font-size: 0.74rem;
+  text-transform: capitalize;
+  border: 1px solid var(--line);
+  background: #eef4ff;
+}
+
+.status-assigned {
+  color: #225;
+}
+
+.status-completed {
+  color: #22754f;
+  border-color: #9ad9b7;
+  background: #ecfbf2;
+}
+
+.status-verified {
+  color: #196f66;
+  border-color: #88d7d2;
+  background: #ebfbfb;
+}
+
+.status-skipped {
+  color: #805e20;
+  border-color: #ead8ab;
+  background: #fff9ea;
+}
+
+.chore-row-detail {
+  display: grid;
+  gap: 0.45rem;
+  padding-top: 0.45rem;
+}
+
+.chore-row-detail .row-actions {
+  flex-wrap: wrap;
+}
+
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.7rem;
+}
+
+.week-day-card {
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #fbfdff;
+  padding: 0.65rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.week-day-card > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.chores-empty {
+  min-height: 220px;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 0.4rem;
+}
+
+.chores-loading {
+  position: relative;
+}
+
+.chores-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: linear-gradient(100deg, rgba(255,255,255,0) 20%, rgba(255,255,255,0.66) 45%, rgba(255,255,255,0) 70%);
+  animation: chores-shimmer 1s linear infinite;
+}
+
+@keyframes chores-shimmer {
+  from { transform: translateX(-65%); }
+  to { transform: translateX(65%); }
+}
+
+.critical-complete-flash {
+  animation: critical-flash 900ms ease;
+}
+
+@keyframes critical-flash {
+  0% { box-shadow: 0 0 0 0 rgba(38, 179, 160, 0.35), 0 8px 24px rgba(23, 53, 94, 0.08); }
+  100% { box-shadow: 0 0 0 16px rgba(38, 179, 160, 0), 0 8px 24px rgba(23, 53, 94, 0.08); }
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translate(-50%, 12px);
+  background: rgba(18, 31, 56, 0.96);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.84rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+  z-index: 12000;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 .calendar-controls {
   display: flex;
   flex-wrap: wrap;
@@ -494,6 +792,10 @@ hr {
     grid-template-columns: 1fr;
   }
 
+  .chores-hero {
+    grid-template-columns: 1fr;
+  }
+
   .calendar-grid.year {
     grid-template-columns: repeat(2, minmax(170px, 1fr));
   }
@@ -515,6 +817,15 @@ hr {
 
   .calendar-grid.year {
     grid-template-columns: 1fr;
+  }
+
+  .chores-subtabs .tab-btn {
+    flex: 1 1 calc(50% - 0.5rem);
+  }
+
+  .chore-row-detail .row-actions .btn {
+    flex: 1 1 calc(50% - 0.4rem);
+    min-height: 42px;
   }
 
   .inline-form {

@@ -13,6 +13,7 @@ const state = {
   game: {
     scheduleWeekStart: "",
     selectedDate: "",
+    choresView: "today",
     assignments: [],
     nights: [],
     activities: [],
@@ -55,6 +56,7 @@ const state = {
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 let syncTimer = null;
+let lastCriticalCelebrationKey = "";
 
 const el = {
   label: document.getElementById("currentLabel"),
@@ -78,7 +80,19 @@ const el = {
   oldMergedSource: document.getElementById("oldMergedSource"),
   oldMergedBefore: document.getElementById("oldMergedBefore"),
   memberList: document.getElementById("memberList"),
-  choreList: document.getElementById("choreList"),
+  choresViews: document.getElementById("choresViews"),
+  choresHero: document.getElementById("choresHero"),
+  choresHeroTitle: document.getElementById("choresHeroTitle"),
+  choresHeroSub: document.getElementById("choresHeroSub"),
+  choresProgressBar: document.getElementById("choresProgressBar"),
+  choresProgressRing: document.getElementById("choresProgressRing"),
+  choresProgressLabel: document.getElementById("choresProgressLabel"),
+  choresNextUp: document.getElementById("choresNextUp"),
+  choresUpdatedAt: document.getElementById("choresUpdatedAt"),
+  choresTodayPanel: document.getElementById("choresTodayPanel"),
+  choresWeekPanel: document.getElementById("choresWeekPanel"),
+  choresHistoryPanel: document.getElementById("choresHistoryPanel"),
+  choresSettingsPanel: document.getElementById("choresSettingsPanel"),
   plannerIdeas: document.getElementById("plannerIdeas"),
   mealPeople: document.getElementById("mealPeople"),
   mealTime: document.getElementById("mealTime"),
@@ -239,6 +253,7 @@ function normalizeGame(g) {
   return {
     scheduleWeekStart: g?.scheduleWeekStart || "",
     selectedDate: g?.selectedDate || "",
+    choresView: ["today", "week", "history", "settings"].includes(g?.choresView) ? g.choresView : "today",
     assignments: Array.isArray(g?.assignments) ? g.assignments.map((a) => ({
       id: a.id || uid(),
       choreId: a.choreId || "",
@@ -246,7 +261,7 @@ function normalizeGame(g) {
       userId: a.userId || "",
       userName: a.userName || "",
       scheduledDate: a.scheduledDate || "",
-      status: ["assigned", "completed", "skipped"].includes(a.status) ? a.status : "assigned",
+      status: ["assigned", "completed", "skipped", "verified"].includes(a.status) ? a.status : "assigned",
       completedAt: a.completedAt || "",
       pointsAwarded: Number(a.pointsAwarded) || 0,
       difficulty: Math.max(1, Math.min(3, Number(a.difficulty) || 1)),
@@ -283,6 +298,11 @@ function normalizeGame(g) {
       allowReroll: g?.settings?.allowReroll !== false,
       cutoffDow: Number(g?.settings?.cutoffDow) || 0,
       cutoffHour: Number(g?.settings?.cutoffHour) || 20,
+      celebrateCompletions: g?.settings?.celebrateCompletions !== false,
+      celebrateCriticalMoment: g?.settings?.celebrateCriticalMoment !== false,
+      lateHighlightHour: Number.isFinite(Number(g?.settings?.lateHighlightHour))
+        ? Math.max(16, Math.min(23, Number(g?.settings?.lateHighlightHour)))
+        : 19,
     },
   };
 }
@@ -693,9 +713,14 @@ function defaultGameActivities() {
 function ensureGameDefaults() {
   if (!state.game.scheduleWeekStart) state.game.scheduleWeekStart = weekStartIso(new Date());
   if (!state.game.selectedDate) state.game.selectedDate = formatDate(new Date());
+  if (!["today", "week", "history", "settings"].includes(state.game.choresView)) state.game.choresView = "today";
   if (!Array.isArray(state.game.activities) || !state.game.activities.length) {
     state.game.activities = defaultGameActivities();
   }
+  if (!state.game.settings) state.game.settings = {};
+  if (typeof state.game.settings.celebrateCompletions !== "boolean") state.game.settings.celebrateCompletions = true;
+  if (typeof state.game.settings.celebrateCriticalMoment !== "boolean") state.game.settings.celebrateCriticalMoment = true;
+  if (!Number.isFinite(Number(state.game.settings.lateHighlightHour))) state.game.settings.lateHighlightHour = 19;
   ensureNightsForWeek(state.game.scheduleWeekStart);
 }
 
@@ -901,7 +926,7 @@ function computeLeaderboard(weekStart) {
   }]));
 
   for (const a of weekAssignments(weekStart)) {
-    if (a.status !== "completed") continue;
+    if (a.status !== "completed" && a.status !== "verified") continue;
     const row = base.get(a.userId);
     if (!row) continue;
     row.points += Number(a.pointsAwarded) || 0;
@@ -1022,7 +1047,7 @@ function dateCell(date, includeDayChores = false) {
   }).join("");
 
   const choresBlock = includeDayChores
-    ? `<div class="day-chores"><h4>Daily Chores</h4><ul>${assignmentsForDate(date).map((a) => `<li><label><input type="checkbox" data-toggle-assignment="${a.id}" ${a.status === "completed" ? "checked" : ""} /><span class="${a.status === "completed" ? "done" : ""}">${escapeHtml(a.choreTitle)}</span></label></li>`).join("") || "<li class='muted'>No chores scheduled</li>"}</ul></div>`
+    ? `<div class="day-chores"><h4>Daily Chores</h4><ul>${assignmentsForDate(date).map((a) => `<li><label><input type="checkbox" data-toggle-assignment="${a.id}" ${a.status === "completed" || a.status === "verified" ? "checked" : ""} /><span class="${a.status === "completed" || a.status === "verified" ? "done" : ""}">${escapeHtml(a.choreTitle)}</span></label></li>`).join("") || "<li class='muted'>No chores scheduled</li>"}</ul></div>`
     : "";
 
   return `
@@ -1256,15 +1281,310 @@ function renderPersonEvents() {
 }
 
 function renderChores() {
+  ensureGameDefaults();
+  const view = state.game.choresView || "today";
   const weekStart = state.game.scheduleWeekStart || weekStartIso(state.currentDate);
-  const rows = state.game.assignments
-    .filter((a) => inWeek(a.scheduledDate, weekStart))
-    .filter((a) => state.selectedPersonId === "family" || a.userId === state.selectedPersonId)
-    .sort((a, b) => `${a.scheduledDate}${a.choreTitle}`.localeCompare(`${b.scheduledDate}${b.choreTitle}`));
-  el.choreList.innerHTML = rows.map((a) => {
-    const who = findMember(a.userId)?.name || a.userName || "Unknown";
-    return `<li class="assignment-row ${a.status === "completed" ? "assignment-completed" : (a.status === "skipped" ? "assignment-skipped" : "")}"><div class="list-content"><label><input type="checkbox" data-toggle-chore-assignment="${a.id}" ${a.status === "completed" ? "checked" : ""} /><span class="${a.status === "completed" ? "done" : ""}">${escapeHtml(a.choreTitle)}</span></label><small>${escapeHtml(a.scheduledDate)} | ${escapeHtml(who)}</small></div></li>`;
-  }).join("") || "<li class='muted'>No scheduled chores for this week.</li>";
+  const today = formatDate(new Date());
+  const weekRows = visibleAssignments(weekAssignments(weekStart));
+  const todayRows = weekRows.filter((a) => a.scheduledDate === today);
+
+  renderChoresPersonTabs();
+  renderChoresHero(todayRows, weekRows, today);
+  renderChoresViewTabs(view);
+  renderChoresTodayPanel(todayRows);
+  renderChoresWeekPanel(weekRows, weekStart);
+  renderChoresHistoryPanel(weekRows);
+  renderChoresSettingsPanel();
+
+  if (el.choresTodayPanel) el.choresTodayPanel.classList.toggle("hidden", view !== "today");
+  if (el.choresWeekPanel) el.choresWeekPanel.classList.toggle("hidden", view !== "week");
+  if (el.choresHistoryPanel) el.choresHistoryPanel.classList.toggle("hidden", view !== "history");
+  if (el.choresSettingsPanel) el.choresSettingsPanel.classList.toggle("hidden", view !== "settings");
+}
+
+function statusTone(status) {
+  if (status === "completed") return "status-completed";
+  if (status === "skipped") return "status-skipped";
+  if (status === "verified") return "status-verified";
+  return "status-assigned";
+}
+
+function priorityKey(a) {
+  if (Number(a.difficulty) >= 3) return "critical";
+  if (Number(a.difficulty) >= 2) return "regular";
+  return "optional";
+}
+
+function priorityRank(a) {
+  const key = priorityKey(a);
+  if (key === "critical") return 0;
+  if (key === "regular") return 1;
+  return 2;
+}
+
+function effortPoints(a) {
+  return Number(a.pointsAwarded) || Number(a.difficulty) || 1;
+}
+
+function sortAssignmentsForFlow(rows) {
+  return rows.slice().sort((a, b) => {
+    const doneA = a.status === "completed" || a.status === "verified" ? 1 : 0;
+    const doneB = b.status === "completed" || b.status === "verified" ? 1 : 0;
+    if (doneA !== doneB) return doneA - doneB;
+    const skipA = a.status === "skipped" ? 1 : 0;
+    const skipB = b.status === "skipped" ? 1 : 0;
+    if (skipA !== skipB) return skipA - skipB;
+    const pr = priorityRank(a) - priorityRank(b);
+    if (pr !== 0) return pr;
+    return String(a.choreTitle || "").localeCompare(String(b.choreTitle || ""));
+  });
+}
+
+function agoText(ts) {
+  if (!ts) return "Updated just now";
+  const ms = Date.now() - Number(ts || 0);
+  if (ms < 15000) return "Updated just now";
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return "Updated less than a minute ago";
+  if (mins < 60) return `Updated ${mins} minute${mins === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `Updated ${hours} hour${hours === 1 ? "" : "s"} ago`;
+  return `Updated ${Math.floor(hours / 24)} day${Math.floor(hours / 24) === 1 ? "" : "s"} ago`;
+}
+
+function ringDash(percent) {
+  const radius = 48;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference * (1 - Math.max(0, Math.min(100, percent)) / 100);
+  return { circumference, offset };
+}
+
+function groupedAssignmentsByPerson(rows) {
+  const members = state.selectedPersonId === "family"
+    ? state.members
+    : state.members.filter((m) => m.id === state.selectedPersonId);
+  return members
+    .map((m) => ({
+      member: m,
+      rows: sortAssignmentsForFlow(rows.filter((a) => a.userId === m.id)),
+    }))
+    .filter((x) => state.selectedPersonId !== "family" || x.rows.length);
+}
+
+function renderPersonCard(member, rows, showDate = false) {
+  const totalMinutes = rows.reduce((sum, a) => sum + (Number(a.estimatedMinutes) || 0), 0);
+  const totalPoints = rows.reduce((sum, a) => sum + effortPoints(a), 0);
+  const priorityGroups = {
+    critical: rows.filter((a) => priorityKey(a) === "critical"),
+    regular: rows.filter((a) => priorityKey(a) === "regular"),
+    optional: rows.filter((a) => priorityKey(a) === "optional"),
+  };
+  const labels = [
+    ["critical", "Critical"],
+    ["regular", "Regular"],
+    ["optional", "Optional"],
+  ];
+  const avatar = (member.name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((s) => s[0]).join("").toUpperCase();
+  return `
+    <article class="chores-person-card">
+      <header>
+        <div class="chores-avatar" style="--member-color:${memberColor(member.name)}">${escapeHtml(avatar || "?")}</div>
+        <div>
+          <h4>${escapeHtml(member.name)}</h4>
+          <p class="muted">${escapeHtml(member.role || "member")} · ${totalMinutes} min · ${totalPoints} effort</p>
+        </div>
+      </header>
+      ${labels.map(([key, label]) => {
+        const group = priorityGroups[key];
+        if (!group.length) return "";
+        return `
+          <section class="priority-group">
+            <h5>${label}</h5>
+            <ul class="list chores-rows">
+              ${group.map((a) => {
+                const status = a.status === "verified" ? "verified" : a.status;
+                const done = status === "completed" || status === "verified";
+                const dateMeta = showDate ? ` · ${escapeHtml(a.scheduledDate)}` : "";
+                return `
+                  <li class="assignment-row chore-row ${done ? "assignment-completed" : ""} ${status === "skipped" ? "assignment-skipped" : ""}" data-assignment-id="${a.id}">
+                    <details>
+                      <summary>
+                        <div class="chore-row-main">
+                          <div class="chore-title-wrap">
+                            <strong class="${done ? "done" : ""}">${escapeHtml(a.choreTitle)}</strong>
+                            <small>${Number(a.estimatedMinutes) || 0} min · ${status}${dateMeta}</small>
+                          </div>
+                          <span class="chore-status-pill ${statusTone(status)}">${escapeHtml(status)}</span>
+                        </div>
+                      </summary>
+                      <div class="chore-row-detail">
+                        <p class="muted">Difficulty ${Number(a.difficulty) || 1} · Category ${escapeHtml(a.category || "general")} · Effort ${effortPoints(a)} pts</p>
+                        <div class="row-actions">
+                          <button class="btn btn-secondary btn-sm" data-chore-action="complete" data-assignment-id="${a.id}" type="button">Complete</button>
+                          <button class="btn btn-secondary btn-sm" data-chore-action="skip" data-assignment-id="${a.id}" type="button">Skip</button>
+                          <button class="btn btn-secondary btn-sm" data-chore-action="swap" data-assignment-id="${a.id}" type="button">Swap</button>
+                          <button class="btn btn-secondary btn-sm" data-chore-action="reassign" data-assignment-id="${a.id}" type="button">Reassign</button>
+                          <button class="btn btn-secondary btn-sm" data-chore-action="verify" data-assignment-id="${a.id}" type="button">Verify</button>
+                        </div>
+                      </div>
+                    </details>
+                  </li>
+                `;
+              }).join("")}
+            </ul>
+          </section>
+        `;
+      }).join("") || "<p class='muted'>No chores assigned.</p>"}
+    </article>
+  `;
+}
+
+function renderChoresHero(todayRows, weekRows, todayIso) {
+  if (!el.choresHero) return;
+  const totalToday = todayRows.length;
+  const doneToday = todayRows.filter((a) => a.status === "completed" || a.status === "verified").length;
+  const percent = totalToday ? Math.round((doneToday / totalToday) * 100) : 0;
+  const critical = todayRows.filter((a) => priorityKey(a) === "critical");
+  const criticalDone = critical.filter((a) => a.status === "completed" || a.status === "verified").length;
+  const pending = sortAssignmentsForFlow(todayRows.filter((a) => a.status === "assigned"));
+  const next = pending[0];
+  const lateHour = Number(state.game.settings.lateHighlightHour) || 19;
+  const now = new Date();
+  const isLate = now.getHours() >= lateHour && criticalDone < critical.length;
+  const weekDone = weekRows.filter((a) => a.status === "completed" || a.status === "verified").length;
+
+  if (el.choresHeroTitle) el.choresHeroTitle.textContent = critical.length ? `${criticalDone}/${critical.length} critical done` : "Keep it tidy";
+  if (el.choresHeroSub) {
+    el.choresHeroSub.textContent = isLate
+      ? "Critical chores are still pending tonight."
+      : `${doneToday}/${totalToday || 0} chores completed today · ${weekDone}/${weekRows.length || 0} this week`;
+  }
+  if (el.choresProgressBar) el.choresProgressBar.style.width = `${percent}%`;
+  if (el.choresProgressLabel) el.choresProgressLabel.textContent = `${percent}%`;
+  if (el.choresUpdatedAt) el.choresUpdatedAt.textContent = agoText(state.lastUpdatedAt);
+  if (el.choresNextUp) el.choresNextUp.textContent = `Next up: ${next ? next.choreTitle : "You are clear"}`;
+  if (el.choresProgressRing) {
+    const ring = ringDash(percent);
+    el.choresProgressRing.style.strokeDasharray = String(ring.circumference);
+    el.choresProgressRing.style.strokeDashoffset = String(ring.offset);
+  }
+
+  el.choresHero.classList.toggle("late-critical", isLate);
+
+  if (critical.length && criticalDone === critical.length && state.game.settings.celebrateCriticalMoment) {
+    const key = `${todayIso}-${state.selectedPersonId}-${critical.length}`;
+    if (lastCriticalCelebrationKey !== key) {
+      lastCriticalCelebrationKey = key;
+      el.choresHero.classList.add("critical-complete-flash");
+      setTimeout(() => el.choresHero?.classList.remove("critical-complete-flash"), 900);
+    }
+  }
+}
+
+function renderChoresViewTabs(view) {
+  if (!el.choresViews) return;
+  el.choresViews.querySelectorAll("[data-chores-view]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.choresView === view);
+  });
+}
+
+function renderChoresTodayPanel(todayRows) {
+  if (!el.choresTodayPanel) return;
+  if (!todayRows.length) {
+    el.choresTodayPanel.innerHTML = `
+      <div class="chores-empty">
+        <h3>No chores scheduled for today</h3>
+        <p class="muted">Generate this week’s schedule to instantly assign balanced daily chores.</p>
+      </div>
+    `;
+    return;
+  }
+  const cards = groupedAssignmentsByPerson(todayRows)
+    .map(({ member, rows }) => renderPersonCard(member, rows))
+    .join("");
+  el.choresTodayPanel.innerHTML = `<div class="chores-cards-grid">${cards}</div>`;
+}
+
+function renderChoresWeekPanel(weekRows, weekStart) {
+  if (!el.choresWeekPanel) return;
+  const days = weekDatesFrom(weekStart);
+  const dayCards = days.map((dateIso) => {
+    const rows = sortAssignmentsForFlow(weekRows.filter((a) => a.scheduledDate === dateIso));
+    const done = rows.filter((a) => a.status === "completed" || a.status === "verified").length;
+    return `
+      <article class="week-day-card">
+        <header>
+          <h4>${escapeHtml(new Date(`${dateIso}T00:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }))}</h4>
+          <small class="muted">${done}/${rows.length} done</small>
+        </header>
+        <ul class="list chores-rows">
+          ${rows.map((a) => `
+            <li class="assignment-row chore-row ${a.status === "completed" || a.status === "verified" ? "assignment-completed" : ""} ${a.status === "skipped" ? "assignment-skipped" : ""}">
+              <div class="chore-row-main">
+                <div class="chore-title-wrap">
+                  <strong class="${a.status === "completed" || a.status === "verified" ? "done" : ""}">${escapeHtml(a.choreTitle)}</strong>
+                  <small>${escapeHtml(findMember(a.userId)?.name || a.userName || "Unknown")} · ${Number(a.estimatedMinutes) || 0} min</small>
+                </div>
+                <span class="chore-status-pill ${statusTone(a.status)}">${escapeHtml(a.status)}</span>
+              </div>
+            </li>
+          `).join("") || "<li class='muted'>No chores</li>"}
+        </ul>
+      </article>
+    `;
+  }).join("");
+  el.choresWeekPanel.innerHTML = `<div class="week-grid">${dayCards}</div>`;
+}
+
+function renderChoresHistoryPanel(weekRows) {
+  if (!el.choresHistoryPanel) return;
+  const history = weekRows
+    .filter((a) => a.status === "completed" || a.status === "verified" || a.status === "skipped")
+    .slice()
+    .sort((a, b) => {
+      const ta = a.completedAt || `${a.scheduledDate}T00:00:00`;
+      const tb = b.completedAt || `${b.scheduledDate}T00:00:00`;
+      return tb.localeCompare(ta);
+    });
+
+  el.choresHistoryPanel.innerHTML = `
+    <h3>Recent Activity</h3>
+    <ul class="list chores-rows">
+      ${history.map((a) => `
+        <li class="assignment-row chore-row ${a.status === "completed" || a.status === "verified" ? "assignment-completed" : ""} ${a.status === "skipped" ? "assignment-skipped" : ""}">
+          <div class="chore-row-main">
+            <div class="chore-title-wrap">
+              <strong>${escapeHtml(a.choreTitle)}</strong>
+              <small>${escapeHtml(findMember(a.userId)?.name || a.userName || "Unknown")} · ${escapeHtml(a.scheduledDate)}</small>
+            </div>
+            <span class="chore-status-pill ${statusTone(a.status)}">${escapeHtml(a.status)}</span>
+          </div>
+        </li>
+      `).join("") || "<li class='muted'>No completion history yet.</li>"}
+    </ul>
+  `;
+}
+
+function renderChoresSettingsPanel() {
+  if (!el.choresSettingsPanel) return;
+  el.choresSettingsPanel.innerHTML = `
+    <h3>Chores Experience Settings</h3>
+    <form id="choresSettingsForm" class="stack">
+      <label class="checkbox-row">
+        <input type="checkbox" name="celebrateCompletions" ${state.game.settings.celebrateCompletions ? "checked" : ""} />
+        <span>Completion micro-animation + haptic feedback</span>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" name="celebrateCriticalMoment" ${state.game.settings.celebrateCriticalMoment ? "checked" : ""} />
+        <span>Celebrate when all critical chores are finished</span>
+      </label>
+      <label>
+        Late reminder starts at (24h)
+        <input type="number" name="lateHighlightHour" min="16" max="23" value="${Number(state.game.settings.lateHighlightHour) || 19}" />
+      </label>
+      <button class="btn btn-primary" type="submit">Save Chores Settings</button>
+    </form>
+  `;
 }
 
 function renderChoreGameControls() {
@@ -1290,7 +1610,7 @@ function renderDailyAssignments() {
   if (!el.dailyAssignmentsList) return;
   el.dailyAssignmentsList.innerHTML = rows.map((a) => {
     const who = findMember(a.userId)?.name || a.userName || "Unknown";
-    return `<li class="assignment-row ${a.status === "completed" ? "assignment-completed" : (a.status === "skipped" ? "assignment-skipped" : "")}"><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(date)} | ${escapeHtml(who)}</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
+    return `<li class="assignment-row ${a.status === "completed" || a.status === "verified" ? "assignment-completed" : (a.status === "skipped" ? "assignment-skipped" : "")}"><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(date)} | ${escapeHtml(who)}</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
   }).join("") || "<li class='muted'>No assignments for this day.</li>";
 }
 
@@ -1338,7 +1658,7 @@ function renderCalendarAssignedChores() {
 
   el.calendarAssignedChores.innerHTML = rows.map((a) => {
     const who = findMember(a.userId)?.name || a.userName || "Unknown";
-    return `<li class="assignment-row ${a.status === "completed" ? "assignment-completed" : (a.status === "skipped" ? "assignment-skipped" : "")}"><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(a.scheduledDate)} | ${escapeHtml(who)}</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
+    return `<li class="assignment-row ${a.status === "completed" || a.status === "verified" ? "assignment-completed" : (a.status === "skipped" ? "assignment-skipped" : "")}"><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(a.scheduledDate)} | ${escapeHtml(who)}</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
   }).join("") || "<li class='muted'>No scheduled chores for this week.</li>";
 }
 
@@ -1351,6 +1671,13 @@ async function generateWeeklyChoreSchedule() {
   let source = "AI";
 
   let assignments = [];
+  const btn = document.getElementById("generateChoresBtn");
+  const prevLabel = btn?.textContent || "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Generating...";
+  }
+  el.choresTodayPanel?.classList.add("chores-loading");
   try {
     const data = await requestChoreSchedule({
       weekStart,
@@ -1386,11 +1713,17 @@ async function generateWeeklyChoreSchedule() {
   if (el.choreGenNote) {
     el.choreGenNote.textContent = `Generated weekly chores for ${weekStart}: 5 chores/day per person (35/week). Source: ${source}.`;
   }
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = prevLabel || "Generate Weekly Schedule";
+  }
+  el.choresTodayPanel?.classList.remove("chores-loading");
 }
 
 function updateChoreNote() {
   if (!el.choreGenNote) return;
-  el.choreGenNote.textContent = "Generates an age-appropriate schedule with 5 chores/day per person (35/week).";
+  if (String(el.choreGenNote.textContent || "").startsWith("Generated weekly chores")) return;
+  el.choreGenNote.textContent = "5 chores per day per person, balanced weekly. Swipe right to complete, left to skip.";
 }
 
 function generatedChoresFor(member) {
@@ -1747,13 +2080,15 @@ async function shareRecipeToNotes(recipe, fallbackDetails) {
 }
 
 function celebrateCompletion(anchorEl) {
-  if (!anchorEl) return;
+  if (!anchorEl || state.game?.settings?.celebrateCompletions === false) return;
   const host = anchorEl.closest("li") || anchorEl;
   host.classList.remove("completion-pop");
   // Trigger reflow so repeated completions animate again.
   void host.offsetWidth;
   host.classList.add("completion-pop");
   setTimeout(() => host.classList.remove("completion-pop"), 700);
+
+  if (navigator?.vibrate) navigator.vibrate(16);
 
   const burst = document.createElement("div");
   burst.className = "completion-burst";
@@ -1762,6 +2097,95 @@ function celebrateCompletion(anchorEl) {
   burst.style.top = `${rect.top + window.scrollY + 18}px`;
   document.body.appendChild(burst);
   setTimeout(() => burst.remove(), 700);
+}
+
+function showToast(message) {
+  const node = document.createElement("div");
+  node.className = "toast";
+  node.textContent = message;
+  document.body.appendChild(node);
+  requestAnimationFrame(() => node.classList.add("show"));
+  setTimeout(() => {
+    node.classList.remove("show");
+    setTimeout(() => node.remove(), 220);
+  }, 1700);
+}
+
+function canManageChore() {
+  if (state.selectedPersonId === "family") return true;
+  const person = findMember(state.selectedPersonId);
+  return person?.role === "adult";
+}
+
+async function applyChoreAction(action, assignmentId, anchorEl) {
+  const row = state.game.assignments.find((a) => a.id === assignmentId);
+  if (!row) return;
+  const previous = { ...row };
+
+  if (action === "complete") {
+    row.status = "completed";
+    row.completedAt = new Date().toISOString();
+  } else if (action === "skip") {
+    const reason = prompt("Reason for skip (optional):", "") || "";
+    row.status = "skipped";
+    row.skipReason = reason.trim();
+    row.completedAt = "";
+  } else if (action === "swap") {
+    const other = state.members.find((m) => m.id !== row.userId);
+    if (!other) return;
+    const name = prompt("Swap with (enter name):", other.name || "") || "";
+    const target = findMemberByLooseName(name);
+    if (!target || target.id === row.userId) {
+      showToast("Swap canceled.");
+      return;
+    }
+    row.userId = target.id;
+    row.userName = target.name;
+    row.status = "assigned";
+    row.completedAt = "";
+  } else if (action === "reassign") {
+    if (!canManageChore()) {
+      showToast("Only adults can reassign chores.");
+      return;
+    }
+    const name = prompt("Reassign to (enter name):", "") || "";
+    const target = findMemberByLooseName(name);
+    if (!target) return;
+    row.userId = target.id;
+    row.userName = target.name;
+    row.status = "assigned";
+    row.completedAt = "";
+  } else if (action === "verify") {
+    if (!canManageChore()) {
+      showToast("Only adults can verify chores.");
+      return;
+    }
+    if (row.status !== "completed" && row.status !== "verified") {
+      showToast("Complete the chore before verifying.");
+      return;
+    }
+    row.status = "verified";
+    row.verifiedBy = state.selectedPersonId;
+    row.verificationAt = new Date().toISOString();
+  } else {
+    return;
+  }
+
+  renderChores();
+  renderCalendarAssignedChores();
+  renderCalendar();
+  if (action === "complete") celebrateCompletion(anchorEl);
+
+  try {
+    await saveState();
+    showToast("Chore updated.");
+  } catch (_err) {
+    Object.assign(row, previous);
+    renderChores();
+    renderCalendarAssignedChores();
+    renderCalendar();
+    showToast("Could not save. Try again.");
+  }
 }
 
 function applyAssignments(assignments, weekStart) {
@@ -1970,6 +2394,14 @@ el.choreWeekStart?.addEventListener("change", async () => {
   renderChores();
   renderCalendar();
   renderCalendarAssignedChores();
+});
+
+el.choresViews?.addEventListener("click", async (e) => {
+  const view = e.target.closest("[data-chores-view]")?.dataset.choresView;
+  if (!view) return;
+  state.game.choresView = view;
+  renderChores();
+  await saveState();
 });
 
 el.choreGameDate?.addEventListener("change", () => {
@@ -2275,18 +2707,48 @@ el.memberList.addEventListener("click", async (e) => {
   render();
 });
 
-el.choreList.addEventListener("change", async (e) => {
-  const id = e.target.dataset.toggleChoreAssignment;
-  if (!id) return;
-  const row = state.game.assignments.find((a) => a.id === id);
+el.choresTodayPanel?.addEventListener("click", async (e) => {
+  const button = e.target.closest("[data-chore-action]");
+  if (!button) return;
+  const action = button.dataset.choreAction;
+  const assignmentId = button.dataset.assignmentId;
+  if (!action || !assignmentId) return;
+  await applyChoreAction(action, assignmentId, button);
+});
+
+let choreTouchStartX = 0;
+let choreTouchId = "";
+el.choresTodayPanel?.addEventListener("touchstart", (e) => {
+  const row = e.target.closest("[data-assignment-id]");
   if (!row) return;
-  row.status = e.target.checked ? "completed" : "assigned";
-  row.completedAt = e.target.checked ? new Date().toISOString() : "";
+  choreTouchId = row.dataset.assignmentId || "";
+  choreTouchStartX = e.changedTouches?.[0]?.clientX || 0;
+}, { passive: true });
+
+el.choresTodayPanel?.addEventListener("touchend", async (e) => {
+  if (!choreTouchId) return;
+  const endX = e.changedTouches?.[0]?.clientX || 0;
+  const delta = endX - choreTouchStartX;
+  const id = choreTouchId;
+  choreTouchId = "";
+  if (Math.abs(delta) < 70) return;
+  if (delta > 0) {
+    await applyChoreAction("complete", id, e.target);
+  } else {
+    await applyChoreAction("skip", id, e.target);
+  }
+}, { passive: true });
+
+el.choresSettingsPanel?.addEventListener("submit", async (e) => {
+  if (e.target.id !== "choresSettingsForm") return;
+  e.preventDefault();
+  const form = new FormData(e.target);
+  state.game.settings.celebrateCompletions = form.get("celebrateCompletions") === "on";
+  state.game.settings.celebrateCriticalMoment = form.get("celebrateCriticalMoment") === "on";
+  state.game.settings.lateHighlightHour = Math.max(16, Math.min(23, Number(form.get("lateHighlightHour")) || 19));
   await saveState();
   renderChores();
-  renderCalendar();
-  renderCalendarAssignedChores();
-  if (e.target.checked) celebrateCompletion(e.target);
+  showToast("Chores settings saved.");
 });
 
 el.dailyAssignmentsList?.addEventListener("click", async (e) => {
@@ -2298,7 +2760,7 @@ el.dailyAssignmentsList?.addEventListener("click", async (e) => {
   if (!row) return;
 
   if (completeId) {
-    if (row.status === "completed") return;
+    if (row.status === "completed" || row.status === "verified") return;
     row.status = "completed";
     row.completedAt = new Date().toISOString();
     celebrateCompletion(e.target);
@@ -2322,7 +2784,7 @@ el.calendarAssignedChores?.addEventListener("click", async (e) => {
   if (!row) return;
 
   if (completeId) {
-    if (row.status === "completed") return;
+    if (row.status === "completed" || row.status === "verified") return;
     row.status = "completed";
     row.completedAt = new Date().toISOString();
     celebrateCompletion(e.target);

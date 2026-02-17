@@ -157,24 +157,56 @@
     </main>
 
     <main id="choreListPage" class="page">
-      <section class="layout chores-layout">
-        <section class="card">
-          <h2>Select Person</h2>
-          <div id="choresPersonTabs" class="person-tabs-vertical"></div>
-        </section>
-        <section class="card">
-          <h2>Weekly Chore Schedule</h2>
-          <p class="hint">Generates a fresh weekly plan with 5 chores per day per person.</p>
-          <div class="inline-form">
-            <label>
-              Week start (Mon)
-              <input type="date" id="choreWeekStart" />
-            </label>
+      <section class="stack chores-redesign">
+        <section class="card chores-hero" id="choresHero">
+          <div class="chores-hero-main">
+            <p class="eyebrow">House Status</p>
+            <h2 id="choresHeroTitle">Keep it tidy</h2>
+            <p id="choresHeroSub" class="hint">Generate a weekly plan to get started.</p>
+            <div class="chores-progress-track">
+              <div id="choresProgressBar" class="chores-progress-fill" style="width:0%"></div>
+            </div>
+            <div class="row-actions">
+              <button id="generateChoresBtn" class="btn btn-primary" type="button">Generate Weekly Schedule</button>
+              <small id="choresUpdatedAt" class="muted">Updated just now</small>
+            </div>
           </div>
-          <button id="generateChoresBtn" class="btn btn-primary" type="button">Generate Weekly Schedule</button>
-          <p id="choreGenNote" class="hint">Use Family Views tabs to filter chores by person.</p>
-          <ul id="choreList" class="list chore-plan-list"></ul>
+          <div class="chores-hero-ring-wrap">
+            <div class="chores-ring">
+              <svg viewBox="0 0 120 120" aria-hidden="true">
+                <circle cx="60" cy="60" r="48" class="ring-bg"></circle>
+                <circle id="choresProgressRing" cx="60" cy="60" r="48" class="ring-fg"></circle>
+              </svg>
+              <div id="choresProgressLabel" class="chores-ring-label">0%</div>
+            </div>
+            <small id="choresNextUp" class="muted">Next up: -</small>
+          </div>
         </section>
+
+        <section class="card chores-toolbar">
+          <div class="chores-toolbar-top">
+            <h3>Chores</h3>
+            <div class="inline-form">
+              <label>
+                Week start (Mon)
+                <input type="date" id="choreWeekStart" />
+              </label>
+            </div>
+          </div>
+          <div id="choresPersonTabs" class="person-tabs"></div>
+          <div id="choresViews" class="tabbar chores-subtabs">
+            <button class="tab-btn active" data-chores-view="today" type="button">Today</button>
+            <button class="tab-btn" data-chores-view="week" type="button">This Week</button>
+            <button class="tab-btn" data-chores-view="history" type="button">History</button>
+            <button class="tab-btn" data-chores-view="settings" type="button">Settings</button>
+          </div>
+          <p id="choreGenNote" class="hint">Effortless household flow. Complete, skip, or swap in one tap.</p>
+        </section>
+
+        <section id="choresTodayPanel" class="card"></section>
+        <section id="choresWeekPanel" class="card hidden"></section>
+        <section id="choresHistoryPanel" class="card hidden"></section>
+        <section id="choresSettingsPanel" class="card hidden"></section>
       </section>
     </main>
 
