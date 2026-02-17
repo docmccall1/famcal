@@ -22,6 +22,7 @@ const state = {
       allowReroll: true,
       cutoffDow: 0,
       cutoffHour: 20,
+      dailyChoresPerPerson: 5,
     },
   },
   editingEventId: "",
@@ -298,6 +299,9 @@ function normalizeGame(g) {
       allowReroll: g?.settings?.allowReroll !== false,
       cutoffDow: Number(g?.settings?.cutoffDow) || 0,
       cutoffHour: Number(g?.settings?.cutoffHour) || 20,
+      dailyChoresPerPerson: Number.isFinite(Number(g?.settings?.dailyChoresPerPerson))
+        ? Math.max(1, Math.min(12, Number(g?.settings?.dailyChoresPerPerson)))
+        : 5,
       celebrateCompletions: g?.settings?.celebrateCompletions !== false,
       celebrateCriticalMoment: g?.settings?.celebrateCriticalMoment !== false,
       lateHighlightHour: Number.isFinite(Number(g?.settings?.lateHighlightHour))
@@ -718,6 +722,8 @@ function ensureGameDefaults() {
     state.game.activities = defaultGameActivities();
   }
   if (!state.game.settings) state.game.settings = {};
+  if (!Number.isFinite(Number(state.game.settings.dailyChoresPerPerson))) state.game.settings.dailyChoresPerPerson = 5;
+  state.game.settings.dailyChoresPerPerson = Math.max(1, Math.min(12, Number(state.game.settings.dailyChoresPerPerson) || 5));
   if (typeof state.game.settings.celebrateCompletions !== "boolean") state.game.settings.celebrateCompletions = true;
   if (typeof state.game.settings.celebrateCriticalMoment !== "boolean") state.game.settings.celebrateCriticalMoment = true;
   if (!Number.isFinite(Number(state.game.settings.lateHighlightHour))) state.game.settings.lateHighlightHour = 19;
@@ -754,18 +760,17 @@ function choreTemplates() {
   for (const c of state.chores) {
     const key = String(c.title || "").trim().toLowerCase();
     if (!key) continue;
-    const member = findMember(c.memberId);
     const difficulty = c.frequency === "Monthly" ? 3 : c.frequency === "Weekly" ? 2 : 1;
     const tpl = map.get(key) || {
       id: `ch-${key.replace(/[^a-z0-9]+/g, "-")}`,
       title: c.title,
       difficulty,
       estimatedMinutes: difficulty === 3 ? 45 : difficulty === 2 ? 30 : 20,
-      ageMin: member?.role === "adult" ? 16 : Math.max(5, Number(member?.age) || 8),
+      ageMin: difficulty === 1 ? 6 : (difficulty === 2 ? 9 : 12),
       category: key.split(" ")[0] || "general",
       active: true,
     };
-    if (member?.role === "adult") tpl.ageMin = Math.max(tpl.ageMin, 16);
+    tpl.ageMin = Math.max(5, Math.min(16, Number(tpl.ageMin) || 8));
     map.set(key, tpl);
   }
   if (!map.size) {
@@ -781,6 +786,74 @@ function choreTemplates() {
 
 function memberEligibleForTemplate(member, tpl) {
   return Number(member.age || 0) >= Number(tpl.ageMin || 0);
+}
+
+function fallbackTemplatesForMember(member) {
+  const age = Number(member?.age || 0);
+  if (age <= 8) {
+    return [
+      { id: "fb-make-bed", title: "Make bed", difficulty: 1, estimatedMinutes: 10, ageMin: 5, category: "bedroom", active: true },
+      { id: "fb-toys-away", title: "Put toys away", difficulty: 1, estimatedMinutes: 10, ageMin: 5, category: "bedroom", active: true },
+      { id: "fb-wipe-table", title: "Wipe dining table", difficulty: 1, estimatedMinutes: 10, ageMin: 6, category: "kitchen", active: true },
+      { id: "fb-shoes", title: "Organize shoes", difficulty: 1, estimatedMinutes: 8, ageMin: 5, category: "entry", active: true },
+      { id: "fb-feed-pet", title: "Help feed pet", difficulty: 1, estimatedMinutes: 8, ageMin: 6, category: "pets", active: true },
+    ];
+  }
+  if (age <= 12) {
+    return [
+      { id: "fb-room", title: "Tidy bedroom", difficulty: 1, estimatedMinutes: 15, ageMin: 8, category: "bedroom", active: true },
+      { id: "fb-dishes", title: "Load dishwasher", difficulty: 2, estimatedMinutes: 20, ageMin: 10, category: "kitchen", active: true },
+      { id: "fb-trash", title: "Take out small trash bins", difficulty: 2, estimatedMinutes: 15, ageMin: 10, category: "home", active: true },
+      { id: "fb-fold-laundry", title: "Fold laundry", difficulty: 2, estimatedMinutes: 20, ageMin: 9, category: "laundry", active: true },
+      { id: "fb-sweep", title: "Sweep common area", difficulty: 2, estimatedMinutes: 20, ageMin: 10, category: "cleaning", active: true },
+    ];
+  }
+  return [
+    { id: "fb-kitchen", title: "Kitchen cleanup", difficulty: 2, estimatedMinutes: 25, ageMin: 12, category: "kitchen", active: true },
+    { id: "fb-laundry", title: "Laundry cycle", difficulty: 2, estimatedMinutes: 30, ageMin: 12, category: "laundry", active: true },
+    { id: "fb-vacuum", title: "Vacuum common areas", difficulty: 3, estimatedMinutes: 35, ageMin: 12, category: "cleaning", active: true },
+    { id: "fb-bathroom", title: "Bathroom wipe-down", difficulty: 2, estimatedMinutes: 25, ageMin: 13, category: "bathroom", active: true },
+    { id: "fb-trash-recycling", title: "Trash and recycling", difficulty: 2, estimatedMinutes: 20, ageMin: 10, category: "home", active: true },
+  ];
+}
+
+function ensureExactDailyQuota(assignments, weekStart, dailyPerPerson = 5) {
+  const days = weekDatesFrom(weekStart);
+  const rows = assignments.slice();
+  const countMap = new Map();
+  for (const row of rows) {
+    const key = `${row.userId}|${row.scheduledDate}`;
+    countMap.set(key, (countMap.get(key) || 0) + 1);
+  }
+
+  for (const member of state.members) {
+    for (const day of days) {
+      const key = `${member.id}|${day}`;
+      let count = countMap.get(key) || 0;
+      while (count < dailyPerPerson) {
+        const fallback = fallbackTemplatesForMember(member)[count % fallbackTemplatesForMember(member).length];
+        const points = Number(state.game.settings.scoreByDifficulty[fallback.difficulty]) || fallback.difficulty;
+        rows.push({
+          id: uid(),
+          choreId: fallback.id,
+          choreTitle: fallback.title,
+          userId: member.id,
+          userName: member.name,
+          scheduledDate: day,
+          status: "assigned",
+          completedAt: "",
+          pointsAwarded: points,
+          difficulty: fallback.difficulty,
+          estimatedMinutes: fallback.estimatedMinutes,
+          category: fallback.category,
+          ageMin: fallback.ageMin,
+        });
+        count += 1;
+        countMap.set(key, count);
+      }
+    }
+  }
+  return rows;
 }
 
 function generateBalancedAssignments(weekStart, dailyMaxPerPerson, targetPerPerson = 5) {
@@ -815,10 +888,10 @@ function generateBalancedAssignments(weekStart, dailyMaxPerPerson, targetPerPers
       if (!chosenDay) continue;
 
       const eligible = templates.filter((tpl) => memberEligibleForTemplate(member, tpl));
-      if (!eligible.length) continue;
+      const candidateTemplates = eligible.length ? eligible : fallbackTemplatesForMember(member);
 
       const catMap = dayCategoryCount.get(chosenDay) || new Map();
-      const best = eligible
+      const best = candidateTemplates
         .slice()
         .sort((a, b) => {
           const ac = catMap.get(a.category) || 0;
@@ -1603,9 +1676,14 @@ function renderChoresHistoryPanel(weekRows) {
 
 function renderChoresSettingsPanel() {
   if (!el.choresSettingsPanel) return;
+  const daily = Number(state.game.settings.dailyChoresPerPerson) || 5;
   el.choresSettingsPanel.innerHTML = `
     <h3>Chores Experience Settings</h3>
     <form id="choresSettingsForm" class="stack">
+      <label>
+        Daily chores per person
+        <input type="number" name="dailyChoresPerPerson" min="1" max="12" value="${daily}" />
+      </label>
       <label class="checkbox-row">
         <input type="checkbox" name="celebrateCompletions" ${state.game.settings.celebrateCompletions ? "checked" : ""} />
         <span>Completion micro-animation + haptic feedback</span>
@@ -1702,8 +1780,8 @@ async function generateWeeklyChoreSchedule() {
   ensureGameDefaults();
   const inputWeek = el.choreWeekStart?.value || state.game.scheduleWeekStart || weekStartIso(state.currentDate);
   const weekStart = weekStartIso(inputWeek);
-  const dailyMax = 5;
-  const targetPerPerson = 35;
+  const dailyMax = Math.max(1, Math.min(12, Number(state.game.settings.dailyChoresPerPerson) || 5));
+  const targetPerPerson = dailyMax * 7;
   let source = "AI";
 
   let assignments = [];
@@ -1733,6 +1811,8 @@ async function generateWeeklyChoreSchedule() {
     source = "Balanced local planner";
   }
 
+  assignments = ensureExactDailyQuota(assignments, weekStart, dailyMax);
+
   applyAssignments(assignments, weekStart);
   state.game.scheduleWeekStart = weekStart;
   if (!state.game.selectedDate || !inWeek(state.game.selectedDate, weekStart)) {
@@ -1747,7 +1827,7 @@ async function generateWeeklyChoreSchedule() {
   renderNights();
   renderCalendarAssignedChores();
   if (el.choreGenNote) {
-    el.choreGenNote.textContent = `Generated weekly chores for ${weekStart}: 5 chores/day per person (35/week). Source: ${source}.`;
+    el.choreGenNote.textContent = `Generated weekly chores for ${weekStart}: ${dailyMax} chores/day per person (${targetPerPerson}/week). Source: ${source}.`;
   }
   if (btn) {
     btn.disabled = false;
@@ -1759,7 +1839,8 @@ async function generateWeeklyChoreSchedule() {
 function updateChoreNote() {
   if (!el.choreGenNote) return;
   if (String(el.choreGenNote.textContent || "").startsWith("Generated weekly chores")) return;
-  el.choreGenNote.textContent = "5 chores per day per person, balanced weekly. Swipe right to complete, left to skip.";
+  const daily = Number(state.game.settings.dailyChoresPerPerson) || 5;
+  el.choreGenNote.textContent = `${daily} chores per day per person, balanced weekly. Swipe right to complete, left to skip.`;
 }
 
 function generatedChoresFor(member) {
@@ -2801,6 +2882,7 @@ el.choresSettingsPanel?.addEventListener("submit", async (e) => {
   if (e.target.id !== "choresSettingsForm") return;
   e.preventDefault();
   const form = new FormData(e.target);
+  state.game.settings.dailyChoresPerPerson = Math.max(1, Math.min(12, Number(form.get("dailyChoresPerPerson")) || 5));
   state.game.settings.celebrateCompletions = form.get("celebrateCompletions") === "on";
   state.game.settings.celebrateCriticalMoment = form.get("celebrateCriticalMoment") === "on";
   state.game.settings.lateHighlightHour = Math.max(16, Math.min(23, Number(form.get("lateHighlightHour")) || 19));
