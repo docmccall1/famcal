@@ -179,17 +179,7 @@
           <ul id="choreList" class="list chore-plan-list"></ul>
           <hr />
           <h3>Chore Game</h3>
-          <p class="hint">Build a balanced weekly schedule, track points, and unlock randomizer for Game Night and Fun Night.</p>
-          <div class="inline-form">
-            <label>
-              Week start (Mon)
-              <input type="date" id="choreGameWeekStart" />
-            </label>
-            <label>
-              Daily max chores / person
-              <input type="number" id="choreDailyMax" min="1" max="6" value="2" />
-            </label>
-          </div>
+          <p class="hint">Use Family view for the full game board. Configure game settings in the Settings tab.</p>
           <div class="row-actions">
             <button id="finalizeWeekBtn" class="btn btn-secondary" type="button">Finalize Week + Unlock Randomizer</button>
           </div>
@@ -207,30 +197,6 @@
           <ul id="gameLeaderboardList" class="list"></ul>
           <h4>Game Night and Fun Night</h4>
           <ul id="nightsList" class="list"></ul>
-          <details>
-            <summary>Admin Settings</summary>
-            <div class="stack">
-              <div class="inline-form">
-                <label>
-                  Point value (difficulty 1)
-                  <input type="number" id="scoreDiff1" min="1" max="10" value="1" />
-                </label>
-                <label>
-                  Point value (difficulty 2)
-                  <input type="number" id="scoreDiff2" min="1" max="10" value="2" />
-                </label>
-                <label>
-                  Point value (difficulty 3)
-                  <input type="number" id="scoreDiff3" min="1" max="10" value="3" />
-                </label>
-              </div>
-              <label class="checkbox-row">
-                <input type="checkbox" id="allowReroll" checked />
-                <span>Allow one reroll before confirmation</span>
-              </label>
-              <button id="saveGameSettingsBtn" class="btn btn-secondary" type="button">Save Game Settings</button>
-            </div>
-          </details>
         </section>
       </section>
     </main>
@@ -405,6 +371,40 @@
             </label>
             <button class="btn btn-secondary" type="submit">Remove Old Imported Events</button>
           </form>
+        </section>
+        <section class="card">
+          <h2>Chore Game Settings</h2>
+          <div class="stack">
+            <div class="inline-form">
+              <label>
+                Week start (Mon)
+                <input type="date" id="choreGameWeekStart" />
+              </label>
+              <label>
+                Daily max chores / person
+                <input type="number" id="choreDailyMax" min="1" max="6" value="2" />
+              </label>
+            </div>
+            <div class="inline-form">
+              <label>
+                Point value (difficulty 1)
+                <input type="number" id="scoreDiff1" min="1" max="10" value="1" />
+              </label>
+              <label>
+                Point value (difficulty 2)
+                <input type="number" id="scoreDiff2" min="1" max="10" value="2" />
+              </label>
+              <label>
+                Point value (difficulty 3)
+                <input type="number" id="scoreDiff3" min="1" max="10" value="3" />
+              </label>
+            </div>
+            <label class="checkbox-row">
+              <input type="checkbox" id="allowReroll" checked />
+              <span>Allow one reroll before confirmation</span>
+            </label>
+            <button id="saveGameSettingsBtn" class="btn btn-secondary" type="button">Save Game Settings</button>
+          </div>
         </section>
       </section>
     </main>

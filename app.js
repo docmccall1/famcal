@@ -148,6 +148,15 @@ function addDaysIso(iso, days) {
   return formatDate(d);
 }
 
+function plusOneHour(time) {
+  if (!/^\d{2}:\d{2}$/.test(String(time || ""))) return "";
+  const [hh, mm] = time.split(":").map(Number);
+  const d = new Date();
+  d.setHours(hh, mm, 0, 0);
+  d.setHours(d.getHours() + 1);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 function memberColor(memberName) {
   const input = (memberName || "family").toLowerCase();
   let hash = 0;
@@ -204,6 +213,10 @@ function normalizeRequest(r) {
     requestedTime: r.requestedTime || "",
     memberId: r.memberId || "",
     memberName: r.memberName || r.member || "",
+    status: ["pending", "approved", "disapproved"].includes(r.status) ? r.status : "pending",
+    approvedAt: r.approvedAt || "",
+    disapprovedAt: r.disapprovedAt || "",
+    approvedEventId: r.approvedEventId || "",
   };
 }
 
@@ -363,6 +376,7 @@ async function pushRemote() {
 }
 
 async function saveState() {
+  pruneExpiredDisapprovedRequests();
   touch();
   saveLocal();
   await pushRemote();
@@ -482,9 +496,6 @@ function visibleChores() { return state.chores.filter(matchesSelected); }
 
 function setMainTab(tab, save = true) {
   state.activeTab = tab;
-  if (tab === "chores" && state.selectedPersonId === "family" && state.members.length) {
-    state.selectedPersonId = state.members[0].id;
-  }
   el.mainTabs.forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   el.calendarPage.classList.toggle("active", tab === "calendar");
   el.requestsPage.classList.toggle("active", tab === "requests");
@@ -523,11 +534,14 @@ function renderPersonTabs() {
 
 function renderChoresPersonTabs() {
   if (!el.choresPersonTabs) return;
-  const items = state.members.map((m) => `
+  const items = [
+    `<button class="person-tab ${state.selectedPersonId === "family" ? "active" : ""}" data-chores-person-id="family">Family</button>`,
+    ...state.members.map((m) => `
     <button class="person-tab ${state.selectedPersonId === m.id ? "active" : ""}" data-chores-person-id="${m.id}">
       ${escapeHtml(m.name)}
     </button>
-  `);
+  `),
+  ];
   el.choresPersonTabs.innerHTML = items.join("");
 }
 
@@ -729,29 +743,46 @@ function memberEligibleForTemplate(member, tpl) {
   return Number(member.age || 0) >= Number(tpl.ageMin || 0);
 }
 
-function generateBalancedAssignments(weekStart, dailyMaxPerPerson) {
+function generateBalancedAssignments(weekStart, dailyMaxPerPerson, targetPerPerson = 5) {
   const members = state.members.slice();
   const templates = choreTemplates().filter((t) => t.active);
   const days = weekDatesFrom(weekStart);
+  const dayLoad = new Map(days.map((d) => [d, 0]));
+  const perMemberDaily = new Map();
   const perMemberTotal = new Map(members.map((m) => [m.id, 0]));
   const templateUse = new Map(templates.map((t) => [t.id, 0]));
   const out = [];
+  const dayCategoryCount = new Map(days.map((d) => [d, new Map()]));
+  const weekSeed = Math.floor(new Date(`${weekStart}T00:00:00`).getTime() / 86400000);
 
-  for (const day of days) {
-    const dayCategoryCount = new Map();
-    const orderedMembers = members.slice().sort((a, b) => perMemberTotal.get(a.id) - perMemberTotal.get(b.id));
-    for (const member of orderedMembers) {
-      let assignedTodayForMember = out.filter((a) => a.userId === member.id && a.scheduledDate === day).length;
-      if (assignedTodayForMember >= dailyMaxPerPerson) continue;
+  members.forEach((m) => perMemberDaily.set(m.id, new Map(days.map((d) => [d, 0]))));
+
+  for (let pass = 0; pass < targetPerPerson; pass += 1) {
+    for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
+      const member = members[memberIndex];
+      const memberDayMap = perMemberDaily.get(member.id);
+      const preferred = days[(weekSeed + memberIndex + pass) % days.length];
+      const candidateDays = days
+        .filter((d) => (memberDayMap.get(d) || 0) < dailyMaxPerPerson)
+        .sort((a, b) => {
+          const loadDiff = (dayLoad.get(a) || 0) - (dayLoad.get(b) || 0);
+          if (loadDiff !== 0) return loadDiff;
+          if (a === preferred) return -1;
+          if (b === preferred) return 1;
+          return a.localeCompare(b);
+        });
+      const chosenDay = candidateDays[0];
+      if (!chosenDay) continue;
 
       const eligible = templates.filter((tpl) => memberEligibleForTemplate(member, tpl));
       if (!eligible.length) continue;
 
+      const catMap = dayCategoryCount.get(chosenDay) || new Map();
       const best = eligible
         .slice()
         .sort((a, b) => {
-          const ac = dayCategoryCount.get(a.category) || 0;
-          const bc = dayCategoryCount.get(b.category) || 0;
+          const ac = catMap.get(a.category) || 0;
+          const bc = catMap.get(b.category) || 0;
           if (ac !== bc) return ac - bc;
           const au = templateUse.get(a.id) || 0;
           const bu = templateUse.get(b.id) || 0;
@@ -766,7 +797,7 @@ function generateBalancedAssignments(weekStart, dailyMaxPerPerson) {
         choreTitle: best.title,
         userId: member.id,
         userName: member.name,
-        scheduledDate: day,
+        scheduledDate: chosenDay,
         status: "assigned",
         completedAt: "",
         pointsAwarded: points,
@@ -775,14 +806,25 @@ function generateBalancedAssignments(weekStart, dailyMaxPerPerson) {
         category: best.category,
         ageMin: best.ageMin,
       });
-      assignedTodayForMember += 1;
+      memberDayMap.set(chosenDay, (memberDayMap.get(chosenDay) || 0) + 1);
+      dayLoad.set(chosenDay, (dayLoad.get(chosenDay) || 0) + 1);
       perMemberTotal.set(member.id, (perMemberTotal.get(member.id) || 0) + 1);
       templateUse.set(best.id, (templateUse.get(best.id) || 0) + 1);
-      dayCategoryCount.set(best.category, (dayCategoryCount.get(best.category) || 0) + 1);
+      catMap.set(best.category, (catMap.get(best.category) || 0) + 1);
+      dayCategoryCount.set(chosenDay, catMap);
     }
   }
 
   return out;
+}
+
+function hasWeeklyQuota(assignments, weekStart, targetPerPerson = 5) {
+  const counts = new Map(state.members.map((m) => [m.id, 0]));
+  for (const row of assignments) {
+    if (!inWeek(row.scheduledDate, weekStart)) continue;
+    counts.set(row.userId, (counts.get(row.userId) || 0) + 1);
+  }
+  return state.members.every((m) => (counts.get(m.id) || 0) >= targetPerPerson);
 }
 
 function inWeek(isoDate, weekStart) {
@@ -1007,11 +1049,68 @@ function renderCalendar() {
   renderCalendarAssignedChores();
 }
 
+function pruneExpiredDisapprovedRequests() {
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const before = state.requests.length;
+  state.requests = state.requests.filter((r) => {
+    if (r.status !== "disapproved") return true;
+    if (!r.disapprovedAt) return true;
+    const ts = Date.parse(r.disapprovedAt);
+    if (!Number.isFinite(ts)) return true;
+    return now - ts < weekMs;
+  });
+  return state.requests.length !== before;
+}
+
+async function approveRequest(requestId) {
+  const req = state.requests.find((r) => r.id === requestId);
+  if (!req || req.status === "approved") return;
+  const owner = findMember(req.memberId) || state.members[0];
+  if (!owner) return;
+  const startDate = req.requestedDate || formatDate(new Date());
+  const startTime = req.requestedTime || "";
+  const evId = req.approvedEventId || uid();
+  const exists = state.events.some((ev) => ev.id === evId);
+  if (!exists) {
+    state.events.push({
+      id: evId,
+      title: req.text || "Approved Request",
+      startDate,
+      endDate: startDate,
+      allDay: !startTime,
+      start: startTime,
+      end: startTime ? plusOneHour(startTime) : "",
+      memberId: owner.id,
+      memberName: owner.name,
+      involvedMemberIds: [owner.id],
+      recurring: "none",
+    });
+  }
+  req.status = "approved";
+  req.approvedAt = new Date().toISOString();
+  req.disapprovedAt = "";
+  req.approvedEventId = evId;
+}
+
+function disapproveRequest(requestId) {
+  const req = state.requests.find((r) => r.id === requestId);
+  if (!req) return;
+  req.status = "disapproved";
+  req.disapprovedAt = new Date().toISOString();
+}
+
 function renderRequests() {
+  const removed = pruneExpiredDisapprovedRequests();
+  if (removed) saveLocal();
   const rows = visibleRequests().map((r) => {
     const who = displayMember(r);
     const reqWhen = [r.requestedDate, r.requestedTime].filter(Boolean).join(" ");
-    return `<li><div class="list-content"><span>${escapeHtml(r.text)}</span>${reqWhen ? `<small>Requested: ${escapeHtml(reqWhen)}</small>` : ""}<span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span></div><button class="icon-btn" data-delete-request="${r.id}">✕</button></li>`;
+    const statusText = r.status === "approved" ? "Approved" : (r.status === "disapproved" ? "Not Approved" : "Pending");
+    const actions = r.status === "pending"
+      ? `<button class="btn btn-secondary btn-sm" type="button" data-approve-request="${r.id}">Approve</button><button class="btn btn-secondary btn-sm" type="button" data-disapprove-request="${r.id}">Not Approved</button>`
+      : "";
+    return `<li class="${r.status === "disapproved" ? "request-disapproved" : ""}"><div class="list-content"><span>${escapeHtml(r.text)}</span>${reqWhen ? `<small>Requested: ${escapeHtml(reqWhen)}</small>` : ""}<small>Status: ${statusText}</small><span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span></div><div class="row-actions">${actions}<button class="icon-btn" data-delete-request="${r.id}" title="Remove request">✕</button></div></li>`;
   }).join("");
   el.requestList.innerHTML = rows || "<li class='muted'>No requests yet.</li>";
 }
@@ -1130,7 +1229,7 @@ function renderDailyAssignments() {
   if (!el.dailyAssignmentsList) return;
   el.dailyAssignmentsList.innerHTML = rows.map((a) => {
     const who = findMember(a.userId)?.name || a.userName || "Unknown";
-    return `<li><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(date)} | ${escapeHtml(who)} | ${a.pointsAwarded} pt</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
+    return `<li class="assignment-row ${a.status === "completed" ? "assignment-completed" : (a.status === "skipped" ? "assignment-skipped" : "")}"><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(date)} | ${escapeHtml(who)} | ${a.pointsAwarded} pt</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
   }).join("") || "<li class='muted'>No assignments for this day.</li>";
 }
 
@@ -1178,7 +1277,7 @@ function renderCalendarAssignedChores() {
 
   el.calendarAssignedChores.innerHTML = rows.map((a) => {
     const who = findMember(a.userId)?.name || a.userName || "Unknown";
-    return `<li><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(a.scheduledDate)} | ${escapeHtml(who)} | ${a.pointsAwarded} pt</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
+    return `<li class="assignment-row ${a.status === "completed" ? "assignment-completed" : (a.status === "skipped" ? "assignment-skipped" : "")}"><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(a.scheduledDate)} | ${escapeHtml(who)} | ${a.pointsAwarded} pt</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
   }).join("") || "<li class='muted'>No scheduled chores for this week.</li>";
 }
 
@@ -1186,12 +1285,14 @@ async function generateWeeklyChoreSchedule() {
   ensureGameDefaults();
   const weekStart = state.game.scheduleWeekStart;
   const dailyMax = Math.max(1, Math.min(6, Number(el.choreDailyMax?.value) || 2));
+  const targetPerPerson = 5;
 
   let assignments = [];
   try {
     const data = await requestChoreSchedule({
       weekStart,
       dailyMax,
+      targetPerPerson,
       members: state.members.map((m) => ({ id: m.id, name: m.name, age: m.age, role: m.role })),
       chores: choreTemplates(),
     });
@@ -1201,9 +1302,9 @@ async function generateWeeklyChoreSchedule() {
     assignments = [];
   }
 
-  if (!assignments.length) {
-    assignments = generateBalancedAssignments(weekStart, dailyMax);
-    alert("AI schedule unavailable. A balanced local schedule was generated.");
+  if (!assignments.length || !hasWeeklyQuota(assignments, weekStart, targetPerPerson)) {
+    assignments = generateBalancedAssignments(weekStart, dailyMax, targetPerPerson);
+    alert("AI schedule unavailable or incomplete. A balanced 5-chores-per-person plan was generated.");
   }
 
   applyAssignments(assignments, weekStart);
@@ -1223,7 +1324,7 @@ async function generateWeeklyChoreSchedule() {
 
 function updateChoreNote() {
   if (!el.choreGenNote) return;
-  el.choreGenNote.textContent = "Creates a fair Monday-Sunday schedule for all family members.";
+  el.choreGenNote.textContent = "Generates 5 age-appropriate chores per person each week, rotated fairly.";
 }
 
 function generatedChoresFor(member) {
@@ -1579,6 +1680,24 @@ async function shareRecipeToNotes(recipe, fallbackDetails) {
   }
 }
 
+function celebrateCompletion(anchorEl) {
+  if (!anchorEl) return;
+  const host = anchorEl.closest("li") || anchorEl;
+  host.classList.remove("completion-pop");
+  // Trigger reflow so repeated completions animate again.
+  void host.offsetWidth;
+  host.classList.add("completion-pop");
+  setTimeout(() => host.classList.remove("completion-pop"), 700);
+
+  const burst = document.createElement("div");
+  burst.className = "completion-burst";
+  const rect = host.getBoundingClientRect();
+  burst.style.left = `${rect.left + rect.width / 2 + window.scrollX}px`;
+  burst.style.top = `${rect.top + window.scrollY + 18}px`;
+  document.body.appendChild(burst);
+  setTimeout(() => burst.remove(), 700);
+}
+
 function applyAssignments(assignments, weekStart) {
   const keep = state.game.assignments.filter((a) => !inWeek(a.scheduledDate, weekStart));
   state.game.assignments = keep.concat(assignments);
@@ -1739,6 +1858,10 @@ document.getElementById("requestForm").addEventListener("submit", async (e) => {
     requestedTime,
     memberId: member.id,
     memberName: member.name,
+    status: "pending",
+    approvedAt: "",
+    disapprovedAt: "",
+    approvedEventId: "",
   });
   e.target.reset();
   populateMemberSelects();
@@ -2018,7 +2141,25 @@ document.getElementById("exportIcalBtn").addEventListener("click", () => {
 });
 
 el.requestList.addEventListener("click", async (e) => {
-  const id = e.target.dataset.deleteRequest;
+  const approveId = e.target.closest("[data-approve-request]")?.dataset.approveRequest;
+  if (approveId) {
+    await approveRequest(approveId);
+    await saveState();
+    renderRequests();
+    renderCalendar();
+    renderRequestEventsList();
+    return;
+  }
+
+  const disapproveId = e.target.closest("[data-disapprove-request]")?.dataset.disapproveRequest;
+  if (disapproveId) {
+    disapproveRequest(disapproveId);
+    await saveState();
+    renderRequests();
+    return;
+  }
+
+  const id = e.target.closest("[data-delete-request]")?.dataset.deleteRequest;
   if (!id) return;
   state.requests = state.requests.filter((r) => r.id !== id);
   await saveState();
@@ -2093,6 +2234,7 @@ el.choreList.addEventListener("change", async (e) => {
   await saveState();
   renderChores();
   if (state.view === "day") renderCalendar();
+  if (item.done) celebrateCompletion(e.target);
 });
 
 el.dailyAssignmentsList?.addEventListener("click", async (e) => {
@@ -2107,6 +2249,7 @@ el.dailyAssignmentsList?.addEventListener("click", async (e) => {
     if (row.status === "completed") return;
     row.status = "completed";
     row.completedAt = new Date().toISOString();
+    celebrateCompletion(e.target);
   } else {
     row.status = "skipped";
     row.completedAt = "";
@@ -2130,6 +2273,7 @@ el.calendarAssignedChores?.addEventListener("click", async (e) => {
     if (row.status === "completed") return;
     row.status = "completed";
     row.completedAt = new Date().toISOString();
+    celebrateCompletion(e.target);
   } else {
     row.status = "skipped";
     row.completedAt = "";

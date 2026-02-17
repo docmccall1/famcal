@@ -284,6 +284,56 @@ fieldset {
   font-size: 0.92rem;
 }
 
+.assignment-row {
+  position: relative;
+  transition: transform 160ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.assignment-completed {
+  border-color: #8fd8b2 !important;
+  background: linear-gradient(135deg, #f3fff7, #e6fdf0) !important;
+  box-shadow: 0 0 0 1px rgba(50, 170, 110, 0.18), 0 8px 20px rgba(50, 170, 110, 0.15);
+}
+
+.assignment-skipped {
+  border-color: #e4d1a6 !important;
+  background: linear-gradient(135deg, #fffdf7, #fff8e8) !important;
+}
+
+.request-disapproved .list-content {
+  opacity: 0.7;
+}
+
+.request-disapproved .list-content span:first-child {
+  text-decoration: line-through;
+}
+
+.completion-pop {
+  animation: completion-pop 620ms ease;
+}
+
+@keyframes completion-pop {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
+
+.completion-burst {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: 9999;
+  background: radial-gradient(circle, rgba(40,180,120,0.85) 0, rgba(40,180,120,0.15) 50%, rgba(40,180,120,0) 70%);
+  animation: completion-burst 680ms ease-out forwards;
+}
+
+@keyframes completion-burst {
+  0% { transform: translate(-50%, -50%) scale(0.4); opacity: 1; }
+  100% { transform: translate(-50%, -130%) scale(4.2); opacity: 0; }
+}
+
 .list li.meal-recipe-item {
   display: block;
   padding: 0.35rem 0.45rem;

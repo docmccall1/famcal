@@ -338,6 +338,7 @@ async function handleChoreSchedule(req, res) {
 
   const weekStart = String(payload.weekStart || "").trim();
   const dailyMax = Math.max(1, Math.min(6, Number(payload.dailyMax) || 2));
+  const targetPerPerson = Math.max(1, Math.min(10, Number(payload.targetPerPerson) || 5));
   const members = Array.isArray(payload.members) ? payload.members : [];
   const chores = Array.isArray(payload.chores) ? payload.chores : [];
   if (!weekStart || !members.length || !chores.length) {
@@ -349,7 +350,9 @@ async function handleChoreSchedule(req, res) {
     "Create a weekly chore schedule under the Chore Tabs section.",
     "The AI must distribute chores evenly across all seven days of the week so that no single day is overloaded or significantly lighter than the others.",
     "Ensure responsibilities are spread fairly among all participants.",
+    `Assign exactly ${targetPerPerson} chores per person for the week.`,
     "Assign only age-appropriate and ability-appropriate tasks.",
+    "Rotate assignments across days so each person's chores are spread through the week.",
     "Avoid clustering similar chores on the same day unless necessary.",
     "The final output should show a balanced, realistic weekly plan that promotes consistency and fairness.",
     "",
@@ -357,6 +360,7 @@ async function handleChoreSchedule(req, res) {
     "{\"assignments\":[{\"userId\":\"string\",\"choreTitle\":\"string\",\"scheduledDate\":\"YYYY-MM-DD\",\"difficulty\":1,\"estimatedMinutes\":20,\"category\":\"string\",\"ageMin\":0}]}",
     "Return only dates from Monday to Sunday of the requested week.",
     `Daily max chores per person: ${dailyMax}`,
+    `Target chores per person: ${targetPerPerson}`,
   ].join("\n");
 
   const userPrompt = [
