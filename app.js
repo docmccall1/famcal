@@ -1322,8 +1322,17 @@ function priorityRank(a) {
   return 2;
 }
 
-function effortPoints(a) {
-  return Number(a.pointsAwarded) || Number(a.difficulty) || 1;
+function choreActionButtons(a, compact = false) {
+  return `
+    <div class="row-actions chore-row-actions ${compact ? "compact" : ""}">
+      <button class="btn btn-secondary btn-sm" data-chore-action="edit" data-assignment-id="${a.id}" type="button">Edit</button>
+      <button class="btn btn-secondary btn-sm" data-chore-action="complete" data-assignment-id="${a.id}" type="button">Complete</button>
+      <button class="btn btn-secondary btn-sm" data-chore-action="skip" data-assignment-id="${a.id}" type="button">Skip</button>
+      <button class="btn btn-secondary btn-sm" data-chore-action="swap" data-assignment-id="${a.id}" type="button">Swap</button>
+      <button class="btn btn-secondary btn-sm" data-chore-action="reassign" data-assignment-id="${a.id}" type="button">Reassign</button>
+      <button class="btn btn-secondary btn-sm" data-chore-action="verify" data-assignment-id="${a.id}" type="button">Verify</button>
+    </div>
+  `;
 }
 
 function sortAssignmentsForFlow(rows) {
@@ -1338,6 +1347,29 @@ function sortAssignmentsForFlow(rows) {
     if (pr !== 0) return pr;
     return String(a.choreTitle || "").localeCompare(String(b.choreTitle || ""));
   });
+}
+
+async function applyChoreToggle(assignmentId, checked, anchorEl) {
+  const row = state.game.assignments.find((a) => a.id === assignmentId);
+  if (!row) return;
+  const previousStatus = row.status;
+  const previousCompletedAt = row.completedAt;
+  row.status = checked ? "completed" : "assigned";
+  row.completedAt = checked ? new Date().toISOString() : "";
+  renderChores();
+  renderCalendarAssignedChores();
+  renderCalendar();
+  if (checked) celebrateCompletion(anchorEl);
+  try {
+    await saveState();
+  } catch (_err) {
+    row.status = previousStatus;
+    row.completedAt = previousCompletedAt;
+    renderChores();
+    renderCalendarAssignedChores();
+    renderCalendar();
+    showToast("Could not save. Try again.");
+  }
 }
 
 function agoText(ts) {
@@ -1373,7 +1405,6 @@ function groupedAssignmentsByPerson(rows) {
 
 function renderPersonCard(member, rows, showDate = false) {
   const totalMinutes = rows.reduce((sum, a) => sum + (Number(a.estimatedMinutes) || 0), 0);
-  const totalPoints = rows.reduce((sum, a) => sum + effortPoints(a), 0);
   const priorityGroups = {
     critical: rows.filter((a) => priorityKey(a) === "critical"),
     regular: rows.filter((a) => priorityKey(a) === "regular"),
@@ -1391,7 +1422,7 @@ function renderPersonCard(member, rows, showDate = false) {
         <div class="chores-avatar" style="--member-color:${memberColor(member.name)}">${escapeHtml(avatar || "?")}</div>
         <div>
           <h4>${escapeHtml(member.name)}</h4>
-          <p class="muted">${escapeHtml(member.role || "member")} · ${totalMinutes} min · ${totalPoints} effort</p>
+          <p class="muted">${escapeHtml(member.role || "member")} · ${totalMinutes} min</p>
         </div>
       </header>
       ${labels.map(([key, label]) => {
@@ -1407,27 +1438,20 @@ function renderPersonCard(member, rows, showDate = false) {
                 const dateMeta = showDate ? ` · ${escapeHtml(a.scheduledDate)}` : "";
                 return `
                   <li class="assignment-row chore-row ${done ? "assignment-completed" : ""} ${status === "skipped" ? "assignment-skipped" : ""}" data-assignment-id="${a.id}">
-                    <details>
-                      <summary>
-                        <div class="chore-row-main">
-                          <div class="chore-title-wrap">
-                            <strong class="${done ? "done" : ""}">${escapeHtml(a.choreTitle)}</strong>
-                            <small>${Number(a.estimatedMinutes) || 0} min · ${status}${dateMeta}</small>
-                          </div>
-                          <span class="chore-status-pill ${statusTone(status)}">${escapeHtml(status)}</span>
+                    <div class="chore-row-main">
+                      <label class="chore-check">
+                        <input type="checkbox" data-chore-toggle="${a.id}" ${done ? "checked" : ""} />
+                        <div class="chore-title-wrap">
+                          <strong class="${done ? "done" : ""}">${escapeHtml(a.choreTitle)}</strong>
+                          <small>${Number(a.estimatedMinutes) || 0} min · ${status}${dateMeta}</small>
                         </div>
-                      </summary>
-                      <div class="chore-row-detail">
-                        <p class="muted">Difficulty ${Number(a.difficulty) || 1} · Category ${escapeHtml(a.category || "general")} · Effort ${effortPoints(a)} pts</p>
-                        <div class="row-actions">
-                          <button class="btn btn-secondary btn-sm" data-chore-action="complete" data-assignment-id="${a.id}" type="button">Complete</button>
-                          <button class="btn btn-secondary btn-sm" data-chore-action="skip" data-assignment-id="${a.id}" type="button">Skip</button>
-                          <button class="btn btn-secondary btn-sm" data-chore-action="swap" data-assignment-id="${a.id}" type="button">Swap</button>
-                          <button class="btn btn-secondary btn-sm" data-chore-action="reassign" data-assignment-id="${a.id}" type="button">Reassign</button>
-                          <button class="btn btn-secondary btn-sm" data-chore-action="verify" data-assignment-id="${a.id}" type="button">Verify</button>
-                        </div>
-                      </div>
-                    </details>
+                      </label>
+                      <span class="chore-status-pill ${statusTone(status)}">${escapeHtml(status)}</span>
+                    </div>
+                    <div class="chore-row-detail">
+                      <p class="muted">Difficulty ${Number(a.difficulty) || 1} · Category ${escapeHtml(a.category || "general")}</p>
+                      ${choreActionButtons(a)}
+                    </div>
                   </li>
                 `;
               }).join("")}
@@ -1519,13 +1543,19 @@ function renderChoresWeekPanel(weekRows, weekStart) {
         </header>
         <ul class="list chores-rows">
           ${rows.map((a) => `
-            <li class="assignment-row chore-row ${a.status === "completed" || a.status === "verified" ? "assignment-completed" : ""} ${a.status === "skipped" ? "assignment-skipped" : ""}">
+            <li class="assignment-row chore-row ${a.status === "completed" || a.status === "verified" ? "assignment-completed" : ""} ${a.status === "skipped" ? "assignment-skipped" : ""}" data-assignment-id="${a.id}">
               <div class="chore-row-main">
-                <div class="chore-title-wrap">
-                  <strong class="${a.status === "completed" || a.status === "verified" ? "done" : ""}">${escapeHtml(a.choreTitle)}</strong>
-                  <small>${escapeHtml(findMember(a.userId)?.name || a.userName || "Unknown")} · ${Number(a.estimatedMinutes) || 0} min</small>
-                </div>
+                <label class="chore-check">
+                  <input type="checkbox" data-chore-toggle="${a.id}" ${a.status === "completed" || a.status === "verified" ? "checked" : ""} />
+                  <div class="chore-title-wrap">
+                    <strong class="${a.status === "completed" || a.status === "verified" ? "done" : ""}">${escapeHtml(a.choreTitle)}</strong>
+                    <small>${escapeHtml(findMember(a.userId)?.name || a.userName || "Unknown")} · ${Number(a.estimatedMinutes) || 0} min</small>
+                  </div>
+                </label>
                 <span class="chore-status-pill ${statusTone(a.status)}">${escapeHtml(a.status)}</span>
+              </div>
+              <div class="chore-row-detail">
+                ${choreActionButtons(a, true)}
               </div>
             </li>
           `).join("") || "<li class='muted'>No chores</li>"}
@@ -1551,13 +1581,19 @@ function renderChoresHistoryPanel(weekRows) {
     <h3>Recent Activity</h3>
     <ul class="list chores-rows">
       ${history.map((a) => `
-        <li class="assignment-row chore-row ${a.status === "completed" || a.status === "verified" ? "assignment-completed" : ""} ${a.status === "skipped" ? "assignment-skipped" : ""}">
+        <li class="assignment-row chore-row ${a.status === "completed" || a.status === "verified" ? "assignment-completed" : ""} ${a.status === "skipped" ? "assignment-skipped" : ""}" data-assignment-id="${a.id}">
           <div class="chore-row-main">
-            <div class="chore-title-wrap">
-              <strong>${escapeHtml(a.choreTitle)}</strong>
-              <small>${escapeHtml(findMember(a.userId)?.name || a.userName || "Unknown")} · ${escapeHtml(a.scheduledDate)}</small>
-            </div>
+            <label class="chore-check">
+              <input type="checkbox" data-chore-toggle="${a.id}" ${a.status === "completed" || a.status === "verified" ? "checked" : ""} />
+              <div class="chore-title-wrap">
+                <strong>${escapeHtml(a.choreTitle)}</strong>
+                <small>${escapeHtml(findMember(a.userId)?.name || a.userName || "Unknown")} · ${escapeHtml(a.scheduledDate)}</small>
+              </div>
+            </label>
             <span class="chore-status-pill ${statusTone(a.status)}">${escapeHtml(a.status)}</span>
+          </div>
+          <div class="chore-row-detail">
+            ${choreActionButtons(a, true)}
           </div>
         </li>
       `).join("") || "<li class='muted'>No completion history yet.</li>"}
@@ -2122,7 +2158,16 @@ async function applyChoreAction(action, assignmentId, anchorEl) {
   if (!row) return;
   const previous = { ...row };
 
-  if (action === "complete") {
+  if (action === "edit") {
+    const nextTitle = prompt("Edit chore title:", row.choreTitle || "") || row.choreTitle;
+    const nextDate = prompt("Edit date (YYYY-MM-DD):", row.scheduledDate || "") || row.scheduledDate;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(nextDate || ""))) {
+      showToast("Date must be YYYY-MM-DD.");
+      return;
+    }
+    row.choreTitle = nextTitle.trim() || row.choreTitle;
+    row.scheduledDate = nextDate;
+  } else if (action === "complete") {
     row.status = "completed";
     row.completedAt = new Date().toISOString();
   } else if (action === "skip") {
@@ -2707,14 +2752,27 @@ el.memberList.addEventListener("click", async (e) => {
   render();
 });
 
-el.choresTodayPanel?.addEventListener("click", async (e) => {
+const handleChorePanelClick = async (e) => {
   const button = e.target.closest("[data-chore-action]");
   if (!button) return;
   const action = button.dataset.choreAction;
   const assignmentId = button.dataset.assignmentId;
   if (!action || !assignmentId) return;
   await applyChoreAction(action, assignmentId, button);
-});
+};
+
+const handleChorePanelToggle = async (e) => {
+  const id = e.target.dataset.choreToggle;
+  if (!id) return;
+  await applyChoreToggle(id, !!e.target.checked, e.target);
+};
+
+el.choresTodayPanel?.addEventListener("click", handleChorePanelClick);
+el.choresWeekPanel?.addEventListener("click", handleChorePanelClick);
+el.choresHistoryPanel?.addEventListener("click", handleChorePanelClick);
+el.choresTodayPanel?.addEventListener("change", handleChorePanelToggle);
+el.choresWeekPanel?.addEventListener("change", handleChorePanelToggle);
+el.choresHistoryPanel?.addEventListener("change", handleChorePanelToggle);
 
 let choreTouchStartX = 0;
 let choreTouchId = "";
