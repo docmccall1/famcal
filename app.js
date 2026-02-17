@@ -1824,6 +1824,7 @@ async function generateWeeklyChoreSchedule() {
   const dailyMax = Math.max(1, Math.min(12, Number(state.game.settings.dailyChoresPerPerson) || 5));
   const targetPerPerson = dailyMax * 7;
   let source = "AI";
+  let aiWarning = "";
 
   let assignments = [];
   const btn = document.getElementById("generateChoresBtn");
@@ -1843,13 +1844,16 @@ async function generateWeeklyChoreSchedule() {
     });
     const aiRows = Array.isArray(data.assignments) ? data.assignments : [];
     assignments = enforceDailyAssignmentCap(aiRows.map((r) => assignmentFromAiRow(r, weekStart)).filter(Boolean), dailyMax);
-  } catch (_err) {
+  } catch (err) {
     assignments = [];
+    aiWarning = err?.message ? String(err.message) : "AI request failed";
   }
 
-  if (!assignments.length || !hasExactDailyQuota(assignments, weekStart, dailyMax)) {
+  if (!assignments.length) {
     assignments = enforceDailyAssignmentCap(generateBalancedAssignments(weekStart, dailyMax, targetPerPerson), dailyMax);
     source = "Balanced local planner";
+  } else if (!hasExactDailyQuota(assignments, weekStart, dailyMax)) {
+    source = "AI + auto-balance";
   }
 
   assignments = assignments.filter((a) => isActionableChoreTitle(a.choreTitle));
@@ -1869,7 +1873,8 @@ async function generateWeeklyChoreSchedule() {
   renderNights();
   renderCalendarAssignedChores();
   if (el.choreGenNote) {
-    el.choreGenNote.textContent = `Generated weekly chores for ${weekStart}: ${dailyMax} chores/day per person (${targetPerPerson}/week). Source: ${source}.`;
+    const warn = aiWarning ? ` (${aiWarning})` : "";
+    el.choreGenNote.textContent = `Generated weekly chores for ${weekStart}: ${dailyMax} chores/day per person (${targetPerPerson}/week). Source: ${source}${warn}.`;
   }
   if (btn) {
     btn.disabled = false;
@@ -2050,7 +2055,14 @@ async function requestChoreSchedule(payload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!r.ok) throw new Error("Chore schedule request failed");
+  if (!r.ok) {
+    let msg = "Chore schedule request failed";
+    try {
+      const err = await r.json();
+      if (err?.error) msg = String(err.error);
+    } catch (_err) {}
+    throw new Error(msg);
+  }
   return r.json();
 }
 
