@@ -701,6 +701,15 @@ function weekStartIso(input) {
   return formatDate(getWeekStartMonday(input || new Date()));
 }
 
+function hashInt(input) {
+  let h = 0;
+  const text = String(input || "");
+  for (let i = 0; i < text.length; i += 1) {
+    h = ((h << 5) - h + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
 function weekDatesFrom(weekStartIsoDate) {
   return Array.from({ length: 7 }, (_, i) => addDaysIso(weekStartIsoDate, i));
 }
@@ -755,11 +764,39 @@ function ensureNightsForWeek(weekStart) {
   upsert("funNight", funDate);
 }
 
+function defaultChoreCatalog() {
+  return [
+    { id: "dc-make-bed", title: "Make bed", difficulty: 1, estimatedMinutes: 10, ageMin: 5, category: "bedroom", active: true },
+    { id: "dc-tidy-room", title: "Tidy bedroom", difficulty: 1, estimatedMinutes: 15, ageMin: 6, category: "bedroom", active: true },
+    { id: "dc-toys-away", title: "Put toys away", difficulty: 1, estimatedMinutes: 10, ageMin: 5, category: "bedroom", active: true },
+    { id: "dc-wipe-table", title: "Wipe table", difficulty: 1, estimatedMinutes: 10, ageMin: 6, category: "kitchen", active: true },
+    { id: "dc-dishes", title: "Load dishwasher", difficulty: 2, estimatedMinutes: 20, ageMin: 9, category: "kitchen", active: true },
+    { id: "dc-laundry-fold", title: "Fold laundry", difficulty: 2, estimatedMinutes: 20, ageMin: 8, category: "laundry", active: true },
+    { id: "dc-laundry-sort", title: "Sort laundry", difficulty: 1, estimatedMinutes: 15, ageMin: 7, category: "laundry", active: true },
+    { id: "dc-sweep", title: "Sweep common area", difficulty: 2, estimatedMinutes: 20, ageMin: 9, category: "cleaning", active: true },
+    { id: "dc-vacuum", title: "Vacuum common areas", difficulty: 3, estimatedMinutes: 30, ageMin: 12, category: "cleaning", active: true },
+    { id: "dc-trash", title: "Take out trash", difficulty: 2, estimatedMinutes: 15, ageMin: 10, category: "home", active: true },
+    { id: "dc-recycling", title: "Take out recycling", difficulty: 2, estimatedMinutes: 12, ageMin: 10, category: "home", active: true },
+    { id: "dc-bath-wipe", title: "Bathroom wipe-down", difficulty: 2, estimatedMinutes: 20, ageMin: 11, category: "bathroom", active: true },
+    { id: "dc-feed-pet", title: "Feed pet", difficulty: 1, estimatedMinutes: 8, ageMin: 6, category: "pets", active: true },
+  ];
+}
+
+function isActionableChoreTitle(title) {
+  const t = String(title || "").trim().toLowerCase();
+  if (t.length < 3) return false;
+  if (/^be\s+nice\b/.test(t)) return false;
+  if (/^be\s+kind\b/.test(t)) return false;
+  if (/^be\s+good\b/.test(t)) return false;
+  return true;
+}
+
 function choreTemplates() {
   const map = new Map();
   for (const c of state.chores) {
     const key = String(c.title || "").trim().toLowerCase();
     if (!key) continue;
+    if (!isActionableChoreTitle(key)) continue;
     const difficulty = c.frequency === "Monthly" ? 3 : c.frequency === "Weekly" ? 2 : 1;
     const tpl = map.get(key) || {
       id: `ch-${key.replace(/[^a-z0-9]+/g, "-")}`,
@@ -773,13 +810,13 @@ function choreTemplates() {
     tpl.ageMin = Math.max(5, Math.min(16, Number(tpl.ageMin) || 8));
     map.set(key, tpl);
   }
+  for (const tpl of defaultChoreCatalog()) {
+    const key = String(tpl.title || "").trim().toLowerCase();
+    if (!key || map.has(key)) continue;
+    map.set(key, tpl);
+  }
   if (!map.size) {
-    return [
-      { id: uid(), title: "Kitchen cleanup", difficulty: 1, estimatedMinutes: 20, ageMin: 8, category: "kitchen", active: true },
-      { id: uid(), title: "Laundry sort", difficulty: 2, estimatedMinutes: 30, ageMin: 10, category: "laundry", active: true },
-      { id: uid(), title: "Trash and recycling", difficulty: 2, estimatedMinutes: 20, ageMin: 10, category: "home", active: true },
-      { id: uid(), title: "Vacuum common areas", difficulty: 3, estimatedMinutes: 40, ageMin: 12, category: "cleaning", active: true },
-    ];
+    return defaultChoreCatalog();
   }
   return Array.from(map.values());
 }
@@ -867,6 +904,7 @@ function generateBalancedAssignments(weekStart, dailyMaxPerPerson, targetPerPers
   const out = [];
   const dayCategoryCount = new Map(days.map((d) => [d, new Map()]));
   const weekSeed = Math.floor(new Date(`${weekStart}T00:00:00`).getTime() / 86400000);
+  const nonceSeed = Date.now();
 
   members.forEach((m) => perMemberDaily.set(m.id, new Map(days.map((d) => [d, 0]))));
 
@@ -900,6 +938,9 @@ function generateBalancedAssignments(weekStart, dailyMaxPerPerson, targetPerPers
           const au = templateUse.get(a.id) || 0;
           const bu = templateUse.get(b.id) || 0;
           if (au !== bu) return au - bu;
+          const ra = hashInt(`${nonceSeed}|${weekSeed}|${member.id}|${pass}|${a.id}`);
+          const rb = hashInt(`${nonceSeed}|${weekSeed}|${member.id}|${pass}|${b.id}`);
+          if (ra !== rb) return ra - rb;
           return a.title.localeCompare(b.title);
         })[0];
 
@@ -1811,6 +1852,7 @@ async function generateWeeklyChoreSchedule() {
     source = "Balanced local planner";
   }
 
+  assignments = assignments.filter((a) => isActionableChoreTitle(a.choreTitle));
   assignments = ensureExactDailyQuota(assignments, weekStart, dailyMax);
 
   applyAssignments(assignments, weekStart);
