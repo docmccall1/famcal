@@ -65,7 +65,8 @@ const el = {
   choresPersonTabs: document.getElementById("choresPersonTabs"),
   calendarPage: document.getElementById("calendarPage"),
   requestsPage: document.getElementById("requestsPage"),
-  choresPage: document.getElementById("choresPage"),
+  choreListPage: document.getElementById("choreListPage"),
+  choreGamePage: document.getElementById("choreGamePage"),
   plannerPage: document.getElementById("plannerPage"),
   mealPage: document.getElementById("mealPage"),
   settingsPage: document.getElementById("settingsPage"),
@@ -292,7 +293,9 @@ function normalizePayload(p) {
     requests: (Array.isArray(p.requests) ? p.requests : []).map(normalizeRequest),
     chores: (Array.isArray(p.chores) ? p.chores : []).map(normalizeChore),
     selectedPersonId: typeof p.selectedPersonId === "string" ? p.selectedPersonId : "family",
-    activeTab: ["calendar", "requests", "chores", "planner", "meal", "settings"].includes(p.activeTab) ? p.activeTab : "calendar",
+    activeTab: ["calendar", "requests", "chorelist", "choregame", "planner", "meal", "settings"].includes(p.activeTab)
+      ? p.activeTab
+      : (p.activeTab === "chores" ? "chorelist" : "calendar"),
     planner: {
       location: p.planner?.location || "",
       prefs: p.planner?.prefs || "",
@@ -450,6 +453,18 @@ function findMemberByName(name) {
   return state.members.find((m) => m.name.trim().toLowerCase() === n) || null;
 }
 
+function findMemberByLooseName(name) {
+  if (!name) return null;
+  const n = String(name).trim().toLowerCase();
+  const compact = n.replace(/[^a-z0-9]/g, "");
+  if (!compact) return null;
+  return state.members.find((m) => {
+    const base = m.name.trim().toLowerCase();
+    const packed = base.replace(/[^a-z0-9]/g, "");
+    return packed === compact || packed.includes(compact) || compact.includes(packed);
+  }) || null;
+}
+
 function displayMember(item) {
   if (item.memberId) {
     const m = findMember(item.memberId);
@@ -499,7 +514,8 @@ function setMainTab(tab, save = true) {
   el.mainTabs.forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   el.calendarPage.classList.toggle("active", tab === "calendar");
   el.requestsPage.classList.toggle("active", tab === "requests");
-  el.choresPage.classList.toggle("active", tab === "chores");
+  el.choreListPage.classList.toggle("active", tab === "chorelist");
+  el.choreGamePage.classList.toggle("active", tab === "choregame");
   el.plannerPage.classList.toggle("active", tab === "planner");
   el.mealPage.classList.toggle("active", tab === "meal");
   el.settingsPage.classList.toggle("active", tab === "settings");
@@ -1286,6 +1302,7 @@ async function generateWeeklyChoreSchedule() {
   const weekStart = state.game.scheduleWeekStart;
   const dailyMax = Math.max(1, Math.min(6, Number(el.choreDailyMax?.value) || 2));
   const targetPerPerson = 5;
+  let source = "AI";
 
   let assignments = [];
   try {
@@ -1304,7 +1321,7 @@ async function generateWeeklyChoreSchedule() {
 
   if (!assignments.length || !hasWeeklyQuota(assignments, weekStart, targetPerPerson)) {
     assignments = generateBalancedAssignments(weekStart, dailyMax, targetPerPerson);
-    alert("AI schedule unavailable or incomplete. A balanced 5-chores-per-person plan was generated.");
+    source = "Balanced local planner";
   }
 
   applyAssignments(assignments, weekStart);
@@ -1320,6 +1337,9 @@ async function generateWeeklyChoreSchedule() {
   renderGameLeaderboard();
   renderNights();
   renderCalendarAssignedChores();
+  if (el.choreGenNote) {
+    el.choreGenNote.textContent = `Generated 5 age-appropriate chores per person. Source: ${source}.`;
+  }
 }
 
 function updateChoreNote() {
@@ -1706,7 +1726,9 @@ function applyAssignments(assignments, weekStart) {
 function assignmentFromAiRow(row, weekStart) {
   const byId = findMember(row.userId || "");
   const byName = findMemberByName(row.userName || row.user || "");
-  const user = byId || byName;
+  const byLoose = findMemberByLooseName(row.userName || row.user || "");
+  const byIndex = Number.isInteger(Number(row.memberIndex)) ? state.members[Number(row.memberIndex)] : null;
+  const user = byId || byName || byLoose || byIndex;
   if (!user) return null;
   const scheduledDate = String(row.scheduledDate || "");
   if (!scheduledDate || !inWeek(scheduledDate, weekStart)) return null;
