@@ -293,9 +293,9 @@ function normalizePayload(p) {
     requests: (Array.isArray(p.requests) ? p.requests : []).map(normalizeRequest),
     chores: (Array.isArray(p.chores) ? p.chores : []).map(normalizeChore),
     selectedPersonId: typeof p.selectedPersonId === "string" ? p.selectedPersonId : "family",
-    activeTab: ["calendar", "requests", "chorelist", "choregame", "planner", "meal", "settings"].includes(p.activeTab)
+    activeTab: ["calendar", "requests", "chorelist", "planner", "meal", "settings"].includes(p.activeTab)
       ? p.activeTab
-      : (p.activeTab === "chores" ? "chorelist" : "calendar"),
+      : ((p.activeTab === "chores" || p.activeTab === "choregame") ? "chorelist" : "calendar"),
     planner: {
       location: p.planner?.location || "",
       prefs: p.planner?.prefs || "",
@@ -512,13 +512,13 @@ function visibleChores() { return state.chores.filter(matchesSelected); }
 function setMainTab(tab, save = true) {
   state.activeTab = tab;
   el.mainTabs.forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
-  el.calendarPage.classList.toggle("active", tab === "calendar");
-  el.requestsPage.classList.toggle("active", tab === "requests");
-  el.choreListPage.classList.toggle("active", tab === "chorelist");
-  el.choreGamePage.classList.toggle("active", tab === "choregame");
-  el.plannerPage.classList.toggle("active", tab === "planner");
-  el.mealPage.classList.toggle("active", tab === "meal");
-  el.settingsPage.classList.toggle("active", tab === "settings");
+  el.calendarPage?.classList.toggle("active", tab === "calendar");
+  el.requestsPage?.classList.toggle("active", tab === "requests");
+  el.choreListPage?.classList.toggle("active", tab === "chorelist");
+  el.choreGamePage?.classList.toggle("active", tab === "choregame");
+  el.plannerPage?.classList.toggle("active", tab === "planner");
+  el.mealPage?.classList.toggle("active", tab === "meal");
+  el.settingsPage?.classList.toggle("active", tab === "settings");
   window.scrollTo({ top: 0, behavior: "smooth" });
   if (save) saveState();
 }
@@ -851,6 +851,30 @@ function weekAssignments(weekStart) {
   return state.game.assignments.filter((a) => inWeek(a.scheduledDate, weekStart));
 }
 
+function visibleAssignments(rows) {
+  if (state.selectedPersonId === "family") return rows;
+  return rows.filter((a) => a.userId === state.selectedPersonId);
+}
+
+function assignmentsForDate(dateObj) {
+  const iso = formatDate(dateObj);
+  return visibleAssignments(state.game.assignments.filter((a) => a.scheduledDate === iso));
+}
+
+function enforceDailyAssignmentCap(rows, maxPerDayPerPerson = 5) {
+  const capMap = new Map();
+  const out = [];
+  const sorted = rows.slice().sort((a, b) => `${a.scheduledDate}${a.userId}${a.choreTitle}`.localeCompare(`${b.scheduledDate}${b.userId}${b.choreTitle}`));
+  for (const row of sorted) {
+    const key = `${row.userId}|${row.scheduledDate}`;
+    const used = capMap.get(key) || 0;
+    if (used >= maxPerDayPerPerson) continue;
+    capMap.set(key, used + 1);
+    out.push(row);
+  }
+  return out;
+}
+
 function computeLeaderboard(weekStart) {
   const sunday = addDaysIso(weekStart, 6);
   const base = new Map(state.members.map((m) => [m.id, {
@@ -983,7 +1007,7 @@ function dateCell(date, includeDayChores = false) {
   }).join("");
 
   const choresBlock = includeDayChores
-    ? `<div class="day-chores"><h4>Chores</h4><ul>${visibleChores().map((c) => `<li><label><input type="checkbox" data-toggle-chore="${c.id}" ${c.done ? "checked" : ""} /><span class="${c.done ? "done" : ""}">${escapeHtml(c.title)} <small>(${escapeHtml(c.frequency)})</small></span></label></li>`).join("") || "<li class='muted'>No chores</li>"}</ul></div>`
+    ? `<div class="day-chores"><h4>Daily Chores</h4><ul>${assignmentsForDate(date).map((a) => `<li><label><input type="checkbox" data-toggle-assignment="${a.id}" ${a.status === "completed" ? "checked" : ""} /><span class="${a.status === "completed" ? "done" : ""}">${escapeHtml(a.choreTitle)} <small>(${a.pointsAwarded} pt)</small></span></label></li>`).join("") || "<li class='muted'>No chores scheduled</li>"}</ul></div>`
     : "";
 
   return `
@@ -1299,9 +1323,9 @@ function renderCalendarAssignedChores() {
 
 async function generateWeeklyChoreSchedule() {
   ensureGameDefaults();
-  const weekStart = state.game.scheduleWeekStart;
-  const dailyMax = Math.max(1, Math.min(6, Number(el.choreDailyMax?.value) || 2));
-  const targetPerPerson = 5;
+  const weekStart = weekStartIso(state.currentDate);
+  const dailyMax = 5;
+  const targetPerPerson = 7;
   let source = "AI";
 
   let assignments = [];
@@ -1314,18 +1338,18 @@ async function generateWeeklyChoreSchedule() {
       chores: choreTemplates(),
     });
     const aiRows = Array.isArray(data.assignments) ? data.assignments : [];
-    assignments = aiRows.map((r) => assignmentFromAiRow(r, weekStart)).filter(Boolean);
+    assignments = enforceDailyAssignmentCap(aiRows.map((r) => assignmentFromAiRow(r, weekStart)).filter(Boolean), dailyMax);
   } catch (_err) {
     assignments = [];
   }
 
-  if (!assignments.length || !hasWeeklyQuota(assignments, weekStart, targetPerPerson)) {
-    assignments = generateBalancedAssignments(weekStart, dailyMax, targetPerPerson);
+  if (!assignments.length) {
+    assignments = enforceDailyAssignmentCap(generateBalancedAssignments(weekStart, dailyMax, targetPerPerson), dailyMax);
     source = "Balanced local planner";
   }
 
   applyAssignments(assignments, weekStart);
-  ensureNightsForWeek(weekStart);
+  state.game.scheduleWeekStart = weekStart;
   if (!state.game.selectedDate || !inWeek(state.game.selectedDate, weekStart)) {
     state.game.selectedDate = weekStart;
   }
@@ -1338,13 +1362,13 @@ async function generateWeeklyChoreSchedule() {
   renderNights();
   renderCalendarAssignedChores();
   if (el.choreGenNote) {
-    el.choreGenNote.textContent = `Generated 5 age-appropriate chores per person. Source: ${source}.`;
+    el.choreGenNote.textContent = `Generated weekly chores for ${weekStart} with max 5 chores/day per person. Source: ${source}.`;
   }
 }
 
 function updateChoreNote() {
   if (!el.choreGenNote) return;
-  el.choreGenNote.textContent = "Generates 5 age-appropriate chores per person each week, rotated fairly.";
+  el.choreGenNote.textContent = "Generates an age-appropriate weekly schedule with max 5 chores/day per person.";
 }
 
 function generatedChoresFor(member) {
@@ -2398,14 +2422,16 @@ el.grid.addEventListener("click", (e) => {
 });
 
 el.grid.addEventListener("change", async (e) => {
-  const id = e.target.dataset.toggleChore;
+  const id = e.target.dataset.toggleAssignment;
   if (!id) return;
-  const c = state.chores.find((x) => x.id === id);
-  if (!c) return;
-  c.done = !!e.target.checked;
+  const a = state.game.assignments.find((x) => x.id === id);
+  if (!a) return;
+  a.status = e.target.checked ? "completed" : "assigned";
+  a.completedAt = e.target.checked ? new Date().toISOString() : "";
   await saveState();
   renderCalendar();
-  renderChores();
+  renderCalendarAssignedChores();
+  if (e.target.checked) celebrateCompletion(e.target);
 });
 
 el.personTabs.addEventListener("click", (e) => {

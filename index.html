@@ -25,8 +25,7 @@
     <nav class="tabbar card" id="mainTabs">
       <button class="tab-btn active" data-tab="calendar">Calendar</button>
       <button class="tab-btn" data-tab="requests">Requests</button>
-      <button class="tab-btn" data-tab="chorelist">Chore List</button>
-      <button class="tab-btn" data-tab="choregame">Chore Game</button>
+      <button class="tab-btn" data-tab="chorelist">Chores</button>
       <button class="tab-btn" data-tab="planner">Date Planner</button>
       <button class="tab-btn" data-tab="meal">Meal Planner</button>
       <button class="tab-btn" data-tab="settings">Settings</button>
@@ -178,32 +177,6 @@
           <button id="generateChoresBtn" class="btn btn-primary" type="button">AI Generate Weekly Chore Schedule</button>
           <p id="choreGenNote" class="hint">Generates a balanced Monday-Sunday plan for everyone.</p>
           <ul id="choreList" class="list chore-plan-list"></ul>
-        </section>
-      </section>
-    </main>
-
-    <main id="choreGamePage" class="page">
-      <section class="layout">
-        <section class="card">
-          <h2>Chore Game</h2>
-          <p class="hint">Use Family tab for the full board. Settings are in the Settings tab.</p>
-          <div class="row-actions">
-            <button id="finalizeWeekBtn" class="btn btn-secondary" type="button">Finalize Week + Unlock Randomizer</button>
-          </div>
-          <div class="inline-form">
-            <label>
-              Daily assignment view
-              <input type="date" id="choreGameDate" />
-            </label>
-          </div>
-          <h4>Daily Assignments</h4>
-          <ul id="dailyAssignmentsList" class="list"></ul>
-          <h4>Weekly Load</h4>
-          <ul id="weeklyLoadList" class="list"></ul>
-          <h4>Weekly Leaderboard</h4>
-          <ul id="gameLeaderboardList" class="list"></ul>
-          <h4>Game Night and Fun Night</h4>
-          <ul id="nightsList" class="list"></ul>
         </section>
       </section>
     </main>
@@ -378,40 +351,6 @@
             </label>
             <button class="btn btn-secondary" type="submit">Remove Old Imported Events</button>
           </form>
-        </section>
-        <section class="card">
-          <h2>Chore Game Settings</h2>
-          <div class="stack">
-            <div class="inline-form">
-              <label>
-                Week start (Mon)
-                <input type="date" id="choreGameWeekStart" />
-              </label>
-              <label>
-                Daily max chores / person
-                <input type="number" id="choreDailyMax" min="1" max="6" value="2" />
-              </label>
-            </div>
-            <div class="inline-form">
-              <label>
-                Point value (difficulty 1)
-                <input type="number" id="scoreDiff1" min="1" max="10" value="1" />
-              </label>
-              <label>
-                Point value (difficulty 2)
-                <input type="number" id="scoreDiff2" min="1" max="10" value="2" />
-              </label>
-              <label>
-                Point value (difficulty 3)
-                <input type="number" id="scoreDiff3" min="1" max="10" value="3" />
-              </label>
-            </div>
-            <label class="checkbox-row">
-              <input type="checkbox" id="allowReroll" checked />
-              <span>Allow one reroll before confirmation</span>
-            </label>
-            <button id="saveGameSettingsBtn" class="btn btn-secondary" type="button">Save Game Settings</button>
-          </div>
         </section>
       </section>
     </main>
