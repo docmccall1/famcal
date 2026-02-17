@@ -21,10 +21,19 @@ const state = {
       budget: 80,
       day: "",
       location: "",
+      mode: "EITHER",
+      currency: "USD",
+      skillLevel: "intermediate",
+      dietaryConstraints: "",
+      allergies: "",
+      preferredCuisines: "",
+      dislikedIngredients: "",
+      equipment: "",
       prefs: "",
       deals: [],
       recipes: [],
       nextDay: [],
+      rawText: "",
     },
   },
 };
@@ -59,10 +68,18 @@ const el = {
   mealBudget: document.getElementById("mealBudget"),
   mealDay: document.getElementById("mealDay"),
   mealLocation: document.getElementById("mealLocation"),
+  mealMode: document.getElementById("mealMode"),
+  mealSkill: document.getElementById("mealSkill"),
+  mealDietary: document.getElementById("mealDietary"),
+  mealAllergies: document.getElementById("mealAllergies"),
+  mealCuisines: document.getElementById("mealCuisines"),
+  mealDisliked: document.getElementById("mealDisliked"),
+  mealEquipment: document.getElementById("mealEquipment"),
   mealPrefs: document.getElementById("mealPrefs"),
   mealDealsList: document.getElementById("mealDealsList"),
   mealRecipesList: document.getElementById("mealRecipesList"),
   mealNextDayList: document.getElementById("mealNextDayList"),
+  mealPlanText: document.getElementById("mealPlanText"),
   plannerLocation: document.getElementById("plannerLocation"),
   plannerPrefs: document.getElementById("plannerPrefs"),
   partnerEmail: document.getElementById("partnerEmail"),
@@ -183,10 +200,19 @@ function normalizePayload(p) {
         budget: Number(p.planner?.meal?.budget) || 80,
         day: p.planner?.meal?.day || "",
         location: p.planner?.meal?.location || "",
+        mode: p.planner?.meal?.mode || "EITHER",
+        currency: p.planner?.meal?.currency || "USD",
+        skillLevel: p.planner?.meal?.skillLevel || "intermediate",
+        dietaryConstraints: p.planner?.meal?.dietaryConstraints || "",
+        allergies: p.planner?.meal?.allergies || "",
+        preferredCuisines: p.planner?.meal?.preferredCuisines || "",
+        dislikedIngredients: p.planner?.meal?.dislikedIngredients || "",
+        equipment: p.planner?.meal?.equipment || "",
         prefs: p.planner?.meal?.prefs || "",
         deals: Array.isArray(p.planner?.meal?.deals) ? p.planner.meal.deals : [],
         recipes: Array.isArray(p.planner?.meal?.recipes) ? p.planner.meal.recipes : [],
         nextDay: Array.isArray(p.planner?.meal?.nextDay) ? p.planner.meal.nextDay : [],
+        rawText: p.planner?.meal?.rawText || "",
       },
     },
     lastUpdatedAt: Number(p.lastUpdatedAt) || 0,
@@ -733,6 +759,13 @@ function setPlannerInputs() {
     el.mealDay.value = meal.day || formatDate(tomorrow);
   }
   if (el.mealLocation) el.mealLocation.value = meal.location || state.planner.location || "";
+  if (el.mealMode) el.mealMode.value = meal.mode || "EITHER";
+  if (el.mealSkill) el.mealSkill.value = meal.skillLevel || "intermediate";
+  if (el.mealDietary) el.mealDietary.value = meal.dietaryConstraints || "";
+  if (el.mealAllergies) el.mealAllergies.value = meal.allergies || "";
+  if (el.mealCuisines) el.mealCuisines.value = meal.preferredCuisines || "";
+  if (el.mealDisliked) el.mealDisliked.value = meal.dislikedIngredients || "";
+  if (el.mealEquipment) el.mealEquipment.value = meal.equipment || "";
   if (el.mealPrefs) el.mealPrefs.value = meal.prefs || "";
 }
 
@@ -1098,6 +1131,14 @@ document.getElementById("mealPlannerForm")?.addEventListener("submit", async (e)
     budget: Number(el.mealBudget?.value || 80),
     day: String(el.mealDay?.value || ""),
     location: String(el.mealLocation?.value || "").trim(),
+    mode: String(el.mealMode?.value || "EITHER"),
+    currency: "USD",
+    skillLevel: String(el.mealSkill?.value || "intermediate"),
+    dietaryConstraints: String(el.mealDietary?.value || "").trim(),
+    allergies: String(el.mealAllergies?.value || "").trim(),
+    preferredCuisines: String(el.mealCuisines?.value || "").trim(),
+    dislikedIngredients: String(el.mealDisliked?.value || "").trim(),
+    equipment: String(el.mealEquipment?.value || "").trim(),
     preferences: String(el.mealPrefs?.value || "").trim(),
   };
 
@@ -1108,6 +1149,14 @@ document.getElementById("mealPlannerForm")?.addEventListener("submit", async (e)
     budget: payload.budget,
     day: payload.day,
     location: payload.location,
+    mode: payload.mode,
+    currency: payload.currency,
+    skillLevel: payload.skillLevel,
+    dietaryConstraints: payload.dietaryConstraints,
+    allergies: payload.allergies,
+    preferredCuisines: payload.preferredCuisines,
+    dislikedIngredients: payload.dislikedIngredients,
+    equipment: payload.equipment,
     prefs: payload.preferences,
   };
 
@@ -1120,10 +1169,12 @@ document.getElementById("mealPlannerForm")?.addEventListener("submit", async (e)
     state.planner.meal.deals = Array.isArray(data.deals) ? data.deals : [];
     state.planner.meal.recipes = Array.isArray(data.recipes) ? data.recipes : [];
     state.planner.meal.nextDay = Array.isArray(data.nextDay) ? data.nextDay : [];
+    state.planner.meal.rawText = String(data.rawText || "");
   } catch (_err) {
     state.planner.meal.deals = [];
     state.planner.meal.recipes = [];
     state.planner.meal.nextDay = [];
+    state.planner.meal.rawText = "";
     if (el.mealDealsList) el.mealDealsList.innerHTML = "<li>Could not generate meal suggestions. Check OpenAI config.</li>";
     if (el.mealRecipesList) el.mealRecipesList.innerHTML = "<li class='muted'>No recipes generated.</li>";
     if (el.mealNextDayList) el.mealNextDayList.innerHTML = "<li class='muted'>No next-day ideas generated.</li>";
@@ -1425,3 +1476,7 @@ function render() {
   await loadState();
   render();
 })();
+  if (el.mealPlanText) {
+    el.mealPlanText.textContent = meal.rawText || "";
+    el.mealPlanText.classList.toggle("hidden", !meal.rawText);
+  }

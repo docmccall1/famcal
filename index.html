@@ -228,9 +228,47 @@
                 <input type="date" id="mealDay" required />
               </label>
             </div>
+            <div class="inline-form">
+              <label>
+                Mode
+                <select id="mealMode">
+                  <option value="EITHER">Either</option>
+                  <option value="RESTAURANT">Restaurant</option>
+                  <option value="RECIPE">Recipe</option>
+                </select>
+              </label>
+              <label>
+                Skill level
+                <select id="mealSkill">
+                  <option value="beginner">Beginner</option>
+                  <option value="intermediate" selected>Intermediate</option>
+                  <option value="advanced">Advanced</option>
+                </select>
+              </label>
+            </div>
             <label>
               Location
               <input type="text" id="mealLocation" placeholder="Austin, TX" required />
+            </label>
+            <label>
+              Dietary constraints
+              <input type="text" id="mealDietary" placeholder="Vegetarian, gluten-free, etc." />
+            </label>
+            <label>
+              Allergies
+              <input type="text" id="mealAllergies" placeholder="Peanuts, shellfish, etc." />
+            </label>
+            <label>
+              Preferred cuisines
+              <input type="text" id="mealCuisines" placeholder="Italian, Mexican, etc." />
+            </label>
+            <label>
+              Disliked ingredients
+              <input type="text" id="mealDisliked" placeholder="Mushrooms, onions, etc." />
+            </label>
+            <label>
+              Kitchen equipment
+              <input type="text" id="mealEquipment" placeholder="Oven, air fryer, slow cooker..." />
             </label>
             <label>
               Preferences
@@ -242,6 +280,7 @@
 
         <section class="card">
           <h2>Meal Suggestions</h2>
+          <pre id="mealPlanText" class="plan-text"></pre>
           <h4>Restaurant Deals</h4>
           <ul id="mealDealsList" class="list"></ul>
           <h4>At-Home Recipes</h4>

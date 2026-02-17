@@ -374,6 +374,17 @@ fieldset {
   font-size: 0.9rem;
 }
 
+.plan-text {
+  white-space: pre-wrap;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 0.6rem;
+  background: #fbfdff;
+  max-height: 340px;
+  overflow: auto;
+  margin: 0 0 0.8rem;
+}
+
 hr {
   border: none;
   border-top: 1px dashed var(--line);

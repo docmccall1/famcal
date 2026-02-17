@@ -186,24 +186,83 @@ async function handleMealPlan(req, res) {
   const budget = Number(payload.budget || 0);
   const day = String(payload.day || "").trim();
   const location = String(payload.location || "").trim();
-  const preferences = String(payload.preferences || "").trim();
+  const mode = String(payload.mode || "EITHER").toUpperCase();
+  const currency = String(payload.currency || "USD");
+  const skillLevel = String(payload.skillLevel || "intermediate");
+  const dietaryConstraints = String(payload.dietaryConstraints || "");
+  const allergies = String(payload.allergies || "");
+  const preferredCuisines = String(payload.preferredCuisines || "");
+  const dislikedIngredients = String(payload.dislikedIngredients || "");
+  const equipment = String(payload.equipment || "");
+  const notes = String(payload.preferences || "");
+  const lat = Number(payload.lat);
+  const lon = Number(payload.lon);
 
   if (!people || !timeMinutes || !budget || !day || !location) {
     bad(res, "people, timeMinutes, budget, day, and location are required");
     return;
   }
 
-  const prompt = [
-    `Create a meal plan for ${people} people in ${location}.`,
-    `Target day: ${day}.`,
-    `Max cooking time: ${timeMinutes} minutes.`,
-    `Budget target: $${budget}.`,
-    `Preferences: ${preferences || "none provided"}.`,
-    "Return strict JSON only with this shape:",
-    "{\"deals\":[{\"name\":string,\"day\":string,\"time\":string,\"deal\":string,\"notes\":string}],\"recipes\":[{\"name\":string,\"time_minutes\":number,\"cost_estimate\":string,\"notes\":string}],\"nextDay\":[{\"title\":string,\"type\":\"deal|recipe\",\"notes\":string}]}",
-    "For deals: provide likely local weekly/special deals for that day (best available suggestion) and clearly note if estimated.",
-    "For recipes: all recipes must be possible within the time limit.",
-    "For nextDay: provide 3 concise suggestions for the following day.",
+  const safeLat = Number.isFinite(lat) ? String(lat) : "not provided";
+  const safeLon = Number.isFinite(lon) ? String(lon) : "not provided";
+
+  const systemPrompt = [
+    "You are MealPilot, a practical meal planner and local deal finder. Your job is to create a plan for today and also provide suggestions for tomorrow.",
+    "",
+    "You must follow these rules:",
+    "1) Use the inputs exactly as given. Do not invent missing details. If something essential is missing, ask one short question, then still provide a best-effort plan using clearly stated assumptions.",
+    "2) Stay within the user budget. If the request is impossible within budget, say so and offer the closest alternative.",
+    "3) Respect the time limit. Only suggest meals that fit within the time limit.",
+    "4) For restaurant options, search within a 10 mile radius of the provided location and return current deals when available.",
+    "5) For recipe options, provide a recipe that fits the time limit and budget, plus a shopping list and the best local places to buy each category of items near the provided location.",
+    "6) Always include next-day suggestions (tomorrow) that reuse leftovers or overlapping ingredients to reduce cost and waste.",
+    "7) Output must be clear, structured, and easy to follow. Avoid excessive verbosity.",
+    "",
+    "Tool use requirements:",
+    "- If the user selects RESTAURANT mode, or says they are open to restaurants, you must call the local search tool first.",
+    "- If the user selects RECIPE mode, you must not call local restaurant deal tools unless the user also requests restaurant options.",
+    "",
+    "Decision logic:",
+    "- If the user explicitly chooses RESTAURANT, provide 3 to 5 deal options.",
+    "- If the user explicitly chooses RECIPE, provide 1 primary recipe plus an optional backup recipe.",
+    "- If the user says EITHER or is unsure, provide both: 2 restaurant deals and 1 recipe, then recommend the best choice based on budget and time.",
+    "",
+    "Safety and accuracy:",
+    "- Never claim a deal is available unless returned by a local search source. If unavailable, clearly mark as estimate.",
+    "- If deal results are empty, say you could not find deals and switch to a recipe plan.",
+    "",
+    "OUTPUT FORMAT:",
+    "Return the following sections in this exact order, using plain text headings.",
+    "Today Summary:",
+    "Mode Chosen:",
+    "Assumptions:",
+    "Total Estimated Cost:",
+    "Total Estimated Time:",
+    "Option A (Restaurant Deals):",
+    "Option B (Recipe):",
+    "Tomorrow Suggestions:",
+  ].join("\n");
+
+  const userPrompt = [
+    "Meal planning request:",
+    `Location: ${location}`,
+    `Latitude: ${safeLat}`,
+    `Longitude: ${safeLon}`,
+    "Radius miles: 10",
+    `People: ${people}`,
+    `Budget total: ${budget} ${currency}`,
+    `Time available: ${timeMinutes} minutes`,
+    `Cooking skill level: ${skillLevel}`,
+    `Dietary constraints: ${dietaryConstraints || "none provided"}`,
+    `Allergies: ${allergies || "none provided"}`,
+    `Preferred cuisines: ${preferredCuisines || "none provided"}`,
+    `Disliked ingredients: ${dislikedIngredients || "none provided"}`,
+    `Kitchen equipment available: ${equipment || "none provided"}`,
+    `Mode: ${mode}  (RESTAURANT, RECIPE, or EITHER)`,
+    `Day: ${day}`,
+    "",
+    "Additional notes:",
+    notes || "none",
   ].join("\n");
 
   try {
@@ -215,7 +274,10 @@ async function handleMealPlan(req, res) {
       },
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-        input: prompt,
+        input: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
       }),
     });
 
@@ -226,15 +288,33 @@ async function handleMealPlan(req, res) {
     }
 
     const apiData = await openaiRes.json();
-    const text = firstTextFromResponse(apiData).trim();
-    const jsonStart = text.indexOf("{");
-    const jsonText = jsonStart >= 0 ? text.slice(jsonStart) : text;
-    const parsed = JSON.parse(jsonText || "{}");
+    const rawText = firstTextFromResponse(apiData).trim();
+
+    const getSection = (heading, nextHeading) => {
+      const startIdx = rawText.indexOf(heading);
+      if (startIdx < 0) return "";
+      const from = rawText.slice(startIdx + heading.length);
+      if (!nextHeading) return from.trim();
+      const endIdx = from.indexOf(nextHeading);
+      return (endIdx >= 0 ? from.slice(0, endIdx) : from).trim();
+    };
+
+    const optionA = getSection("Option A (Restaurant Deals):", "Option B (Recipe):");
+    const optionB = getSection("Option B (Recipe):", "Tomorrow Suggestions:");
+    const tomorrow = getSection("Tomorrow Suggestions:", "");
+
+    const toLineItems = (section) => section
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((s) => s && !s.endsWith(":"))
+      .slice(0, 12)
+      .map((s) => ({ title: s }));
 
     sendJson(res, 200, {
-      deals: Array.isArray(parsed.deals) ? parsed.deals.slice(0, 8) : [],
-      recipes: Array.isArray(parsed.recipes) ? parsed.recipes.slice(0, 8) : [],
-      nextDay: Array.isArray(parsed.nextDay) ? parsed.nextDay.slice(0, 6) : [],
+      rawText,
+      deals: toLineItems(optionA).map((x) => ({ name: x.title })),
+      recipes: toLineItems(optionB).map((x) => ({ name: x.title })),
+      nextDay: toLineItems(tomorrow).map((x) => ({ title: x.title })),
     });
   } catch (err) {
     sendJson(res, 500, { error: `Could not generate meal plan: ${err.message}` });
