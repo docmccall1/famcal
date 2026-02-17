@@ -27,6 +27,8 @@
       <button class="tab-btn" data-tab="requests">Requests</button>
       <button class="tab-btn" data-tab="chores">People & Chores</button>
       <button class="tab-btn" data-tab="planner">Date Planner</button>
+      <button class="tab-btn" data-tab="meal">Meal Planner</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
     </nav>
 
     <section class="card">
@@ -106,23 +108,15 @@
           <ul id="recurringList" class="list"></ul>
         </section>
 
-        <section class="card">
-          <h3>iCal Merge</h3>
-          <form id="icalForm" class="stack">
-            <label>
-              Import into member
-              <select id="icalMember" required></select>
-            </label>
-            <input type="file" id="icalFile" accept=".ics,.ical,text/calendar" required />
-            <button class="btn btn-secondary" type="submit">Merge .ics/.ical</button>
-          </form>
-          <button id="exportIcalBtn" class="btn btn-primary">Export Current View .ics</button>
-        </section>
       </aside>
     </main>
 
     <main id="requestsPage" class="page">
       <section class="layout requests-layout">
+        <section class="card">
+          <h2>Current Family Events</h2>
+          <ul id="requestEventsList" class="list"></ul>
+        </section>
         <section class="card">
           <h2>Calendar Requests</h2>
           <form id="requestForm" class="stack">
@@ -130,6 +124,16 @@
               Request details
               <textarea id="requestInput" rows="7" placeholder="Type full request details, desired date/time, and notes" required></textarea>
             </label>
+            <div class="inline-form">
+              <label>
+                Requested date
+                <input type="date" id="requestDate" />
+              </label>
+              <label>
+                Requested time
+                <input type="time" id="requestTime" />
+              </label>
+            </div>
             <label>
               Requested by
               <select id="requestMember" required></select>
@@ -147,32 +151,12 @@
     <main id="choresPage" class="page">
       <section class="layout chores-layout">
         <section class="card">
-          <h2>Household Members</h2>
-          <form id="memberForm" class="inline-form">
-            <input type="text" id="memberName" placeholder="Name" required />
-            <select id="memberRole" required>
-              <option value="adult">Adult</option>
-              <option value="child">Child</option>
-            </select>
-            <input type="number" id="memberAge" min="1" max="99" placeholder="Age" required />
-            <select id="memberGender" required>
-              <option value="girl">Girl</option>
-              <option value="boy">Boy</option>
-              <option value="woman">Woman</option>
-              <option value="man">Man</option>
-              <option value="non-binary">Non-binary</option>
-            </select>
-            <button class="btn btn-primary" type="submit">Add Person</button>
-          </form>
-          <ul id="memberList" class="list"></ul>
+          <h2>Select Person</h2>
+          <div id="choresPersonTabs" class="person-tabs-vertical"></div>
         </section>
-
         <section class="card">
-          <h2>Individual Calendar + Chores</h2>
-          <h4>Upcoming Activities</h4>
-          <ul id="personEvents" class="list"></ul>
-          <hr />
-          <h4>Chore List</h4>
+          <h2>Chore List</h2>
+          <p class="hint">Choose a person tab at the top to view and manage only their chores.</p>
           <form id="choreForm" class="inline-form">
             <input type="text" id="choreInput" placeholder="Add chore" required />
             <select id="choreFrequency">
@@ -180,7 +164,6 @@
               <option value="Weekly">Weekly</option>
               <option value="Monthly">Monthly</option>
             </select>
-            <select id="choreMember" required></select>
             <button class="btn btn-secondary" type="submit">Add</button>
           </form>
           <button id="generateChoresBtn" class="btn btn-primary">AI Generate Chores For Selected Tab</button>
@@ -214,6 +197,113 @@
         <section class="card">
           <h2>Suggested Date Ideas</h2>
           <ul id="plannerIdeas" class="list"></ul>
+        </section>
+      </section>
+
+    </main>
+
+    <main id="mealPage" class="page">
+      <section class="layout planner-layout">
+        <section class="card">
+          <h2>AI Meal Planner</h2>
+          <p class="hint">Get local restaurant deals or home recipes based on people, time, and budget, including next-day ideas.</p>
+          <form id="mealPlannerForm" class="stack">
+            <div class="inline-form">
+              <label>
+                People
+                <input type="number" id="mealPeople" min="1" max="20" value="4" required />
+              </label>
+              <label>
+                Max cook time (minutes)
+                <input type="number" id="mealTime" min="10" max="240" value="45" required />
+              </label>
+            </div>
+            <div class="inline-form">
+              <label>
+                Budget ($)
+                <input type="number" id="mealBudget" min="10" max="1000" value="80" required />
+              </label>
+              <label>
+                Day
+                <input type="date" id="mealDay" required />
+              </label>
+            </div>
+            <label>
+              Location
+              <input type="text" id="mealLocation" placeholder="Austin, TX" required />
+            </label>
+            <label>
+              Preferences
+              <textarea id="mealPrefs" rows="3" placeholder="Example: kid-friendly, no shellfish, lighter meals on weekdays"></textarea>
+            </label>
+            <button class="btn btn-primary" type="submit">Generate Meal Plan</button>
+          </form>
+        </section>
+
+        <section class="card">
+          <h2>Meal Suggestions</h2>
+          <h4>Restaurant Deals</h4>
+          <ul id="mealDealsList" class="list"></ul>
+          <h4>At-Home Recipes</h4>
+          <ul id="mealRecipesList" class="list"></ul>
+          <h4>Next-Day Suggestions</h4>
+          <ul id="mealNextDayList" class="list"></ul>
+        </section>
+      </section>
+    </main>
+
+    <main id="settingsPage" class="page">
+      <section class="layout settings-layout">
+        <section class="card">
+          <h2>Household Members</h2>
+          <form id="memberForm" class="inline-form">
+            <input type="text" id="memberName" placeholder="Name" required />
+            <select id="memberRole" required>
+              <option value="adult">Adult</option>
+              <option value="child">Child</option>
+            </select>
+            <input type="number" id="memberAge" min="1" max="99" placeholder="Age" required />
+            <select id="memberGender" required>
+              <option value="girl">Girl</option>
+              <option value="boy">Boy</option>
+              <option value="woman">Woman</option>
+              <option value="man">Man</option>
+              <option value="non-binary">Non-binary</option>
+            </select>
+            <button class="btn btn-primary" type="submit">Add Person</button>
+          </form>
+          <ul id="memberList" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <h2>iCal Merge</h2>
+          <form id="icalForm" class="stack">
+            <label>
+              Import into member
+              <select id="icalMember" required></select>
+            </label>
+            <input type="file" id="icalFile" accept=".ics,.ical,text/calendar" required />
+            <button class="btn btn-secondary" type="submit">Merge .ics/.ical</button>
+          </form>
+          <button id="exportIcalBtn" class="btn btn-primary">Export Current View .ics</button>
+        </section>
+
+        <section class="card">
+          <h2>Merged Calendars</h2>
+          <ul id="mergedSourcesList" class="list"></ul>
+          <form id="removeOldMergedForm" class="stack">
+            <label>
+              Remove imported events before
+              <input type="date" id="oldMergedBefore" required />
+            </label>
+            <label>
+              Source
+              <select id="oldMergedSource">
+                <option value="all">All merged calendars</option>
+              </select>
+            </label>
+            <button class="btn btn-secondary" type="submit">Remove Old Imported Events</button>
+          </form>
         </section>
       </section>
     </main>

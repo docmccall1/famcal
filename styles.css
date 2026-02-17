@@ -53,6 +53,7 @@ h1, h2, h3, h4, legend {
 
 .page { display: none; }
 .page.active { display: grid; }
+.page:not(.active) { display: none !important; }
 
 .tabbar {
   display: flex;
@@ -89,6 +90,17 @@ h1, h2, h3, h4, legend {
   padding: 0.35rem 0.75rem;
 }
 
+.person-tabs-vertical {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.6rem;
+}
+
+.person-tabs-vertical .person-tab {
+  border-radius: 10px;
+  text-align: left;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 1.7fr 1fr;
@@ -99,6 +111,11 @@ h1, h2, h3, h4, legend {
 .chores-layout,
 .planner-layout {
   grid-template-columns: 1fr 1fr;
+}
+
+.chores-layout {
+  grid-template-columns: 260px 1fr;
+  align-items: start;
 }
 
 .card {
@@ -152,6 +169,10 @@ h1, h2, h3, h4, legend {
 .calendar-grid.week {
   grid-template-columns: repeat(7, minmax(170px, 1fr));
   overflow-x: auto;
+}
+
+.calendar-grid.week-list {
+  grid-template-columns: 1fr;
 }
 .calendar-grid.month {
   grid-template-columns: repeat(7, minmax(150px, 1fr));

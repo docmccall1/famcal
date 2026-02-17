@@ -15,6 +15,17 @@ const state = {
     prefs: "",
     partnerEmail: "",
     ideas: [],
+    meal: {
+      people: 4,
+      timeMinutes: 45,
+      budget: 80,
+      day: "",
+      location: "",
+      prefs: "",
+      deals: [],
+      recipes: [],
+      nextDay: [],
+    },
   },
 };
 
@@ -27,23 +38,37 @@ const el = {
   viewBtns: document.querySelectorAll(".view-btn"),
   mainTabs: document.querySelectorAll("#mainTabs .tab-btn"),
   personTabs: document.getElementById("personTabs"),
+  choresPersonTabs: document.getElementById("choresPersonTabs"),
   calendarPage: document.getElementById("calendarPage"),
   requestsPage: document.getElementById("requestsPage"),
   choresPage: document.getElementById("choresPage"),
   plannerPage: document.getElementById("plannerPage"),
+  mealPage: document.getElementById("mealPage"),
+  settingsPage: document.getElementById("settingsPage"),
   requestList: document.getElementById("requestList"),
+  requestEventsList: document.getElementById("requestEventsList"),
   recurringList: document.getElementById("recurringList"),
+  mergedSourcesList: document.getElementById("mergedSourcesList"),
+  oldMergedSource: document.getElementById("oldMergedSource"),
+  oldMergedBefore: document.getElementById("oldMergedBefore"),
   memberList: document.getElementById("memberList"),
   choreList: document.getElementById("choreList"),
-  personEvents: document.getElementById("personEvents"),
   plannerIdeas: document.getElementById("plannerIdeas"),
+  mealPeople: document.getElementById("mealPeople"),
+  mealTime: document.getElementById("mealTime"),
+  mealBudget: document.getElementById("mealBudget"),
+  mealDay: document.getElementById("mealDay"),
+  mealLocation: document.getElementById("mealLocation"),
+  mealPrefs: document.getElementById("mealPrefs"),
+  mealDealsList: document.getElementById("mealDealsList"),
+  mealRecipesList: document.getElementById("mealRecipesList"),
+  mealNextDayList: document.getElementById("mealNextDayList"),
   plannerLocation: document.getElementById("plannerLocation"),
   plannerPrefs: document.getElementById("plannerPrefs"),
   partnerEmail: document.getElementById("partnerEmail"),
   choreGenNote: document.getElementById("choreGenNote"),
   eventMember: document.getElementById("eventMember"),
   requestMember: document.getElementById("requestMember"),
-  choreMember: document.getElementById("choreMember"),
   icalMember: document.getElementById("icalMember"),
   eventAllDay: document.getElementById("eventAllDay"),
   eventTimeRow: document.getElementById("eventTimeRow"),
@@ -109,6 +134,9 @@ function normalizeEvent(ev) {
     memberId: ev.memberId || "",
     memberName: ev.memberName || ev.member || "",
     involvedMemberIds: Array.isArray(ev.involvedMemberIds) ? ev.involvedMemberIds : [],
+    importSourceId: ev.importSourceId || "",
+    importSourceName: ev.importSourceName || "",
+    importedAt: Number(ev.importedAt) || 0,
     recurring: ev.recurring || "none",
   };
 }
@@ -117,6 +145,8 @@ function normalizeRequest(r) {
   return {
     id: r.id || uid(),
     text: r.text || "",
+    requestedDate: r.requestedDate || "",
+    requestedTime: r.requestedTime || "",
     memberId: r.memberId || "",
     memberName: r.memberName || r.member || "",
   };
@@ -141,12 +171,23 @@ function normalizePayload(p) {
     requests: (Array.isArray(p.requests) ? p.requests : []).map(normalizeRequest),
     chores: (Array.isArray(p.chores) ? p.chores : []).map(normalizeChore),
     selectedPersonId: typeof p.selectedPersonId === "string" ? p.selectedPersonId : "family",
-    activeTab: ["calendar", "requests", "chores", "planner"].includes(p.activeTab) ? p.activeTab : "calendar",
+    activeTab: ["calendar", "requests", "chores", "planner", "meal", "settings"].includes(p.activeTab) ? p.activeTab : "calendar",
     planner: {
       location: p.planner?.location || "",
       prefs: p.planner?.prefs || "",
       partnerEmail: p.planner?.partnerEmail || "",
       ideas: Array.isArray(p.planner?.ideas) ? p.planner.ideas : [],
+      meal: {
+        people: Number(p.planner?.meal?.people) || 4,
+        timeMinutes: Number(p.planner?.meal?.timeMinutes) || 45,
+        budget: Number(p.planner?.meal?.budget) || 80,
+        day: p.planner?.meal?.day || "",
+        location: p.planner?.meal?.location || "",
+        prefs: p.planner?.meal?.prefs || "",
+        deals: Array.isArray(p.planner?.meal?.deals) ? p.planner.meal.deals : [],
+        recipes: Array.isArray(p.planner?.meal?.recipes) ? p.planner.meal.recipes : [],
+        nextDay: Array.isArray(p.planner?.meal?.nextDay) ? p.planner.meal.nextDay : [],
+      },
     },
     lastUpdatedAt: Number(p.lastUpdatedAt) || 0,
   };
@@ -311,22 +352,29 @@ function visibleChores() { return state.chores.filter(matchesSelected); }
 
 function setMainTab(tab, save = true) {
   state.activeTab = tab;
+  if (tab === "chores" && state.selectedPersonId === "family" && state.members.length) {
+    state.selectedPersonId = state.members[0].id;
+  }
   el.mainTabs.forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   el.calendarPage.classList.toggle("active", tab === "calendar");
   el.requestsPage.classList.toggle("active", tab === "requests");
   el.choresPage.classList.toggle("active", tab === "chores");
   el.plannerPage.classList.toggle("active", tab === "planner");
+  el.mealPage.classList.toggle("active", tab === "meal");
+  el.settingsPage.classList.toggle("active", tab === "settings");
+  window.scrollTo({ top: 0, behavior: "smooth" });
   if (save) saveState();
 }
 
 function setSelectedPerson(id, save = true) {
   state.selectedPersonId = id;
   renderPersonTabs();
+  renderChoresPersonTabs();
   populateMemberSelects();
   renderCalendar();
   renderRequests();
+  renderRequestEventsList();
   renderRecurring();
-  renderPersonEvents();
   renderChores();
   updateChoreNote();
   if (save) saveState();
@@ -340,6 +388,16 @@ function renderPersonTabs() {
   el.personTabs.innerHTML = items.join("");
 }
 
+function renderChoresPersonTabs() {
+  if (!el.choresPersonTabs) return;
+  const items = state.members.map((m) => `
+    <button class="person-tab ${state.selectedPersonId === m.id ? "active" : ""}" data-chores-person-id="${m.id}">
+      ${escapeHtml(m.name)}
+    </button>
+  `);
+  el.choresPersonTabs.innerHTML = items.join("");
+}
+
 function renderInvolvedChecklist() {
   el.eventInvolved.innerHTML = state.members.map((m) => `
     <label class="checkbox-row">
@@ -350,9 +408,10 @@ function renderInvolvedChecklist() {
 }
 
 function populateMemberSelects() {
-  const selects = [el.eventMember, el.requestMember, el.choreMember, el.icalMember];
+  const selects = [el.eventMember, el.requestMember, el.icalMember];
   const selected = state.selectedPersonId !== "family" ? state.selectedPersonId : state.members[0]?.id;
   for (const s of selects) {
+    if (!s) continue;
     s.innerHTML = state.members.map((m) => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join("");
     if (selected) s.value = selected;
   }
@@ -396,6 +455,23 @@ function occursOnDate(ev, dateObj, targetIso) {
 function eventsForDate(dateObj) {
   const iso = formatDate(dateObj);
   return visibleEvents().filter((ev) => occursOnDate(ev, dateObj, iso));
+}
+
+function eventsForWeek(anchorDate) {
+  const start = getWeekStart(anchorDate);
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const x = new Date(start);
+    x.setDate(start.getDate() + i);
+    return x;
+  });
+
+  const rows = [];
+  for (const day of days) {
+    for (const ev of eventsForDate(day)) {
+      rows.push({ day: new Date(day), ev });
+    }
+  }
+  return rows;
 }
 
 function eventDateText(ev) {
@@ -455,15 +531,26 @@ function renderCalendar() {
 
   if (state.view === "week") {
     const start = getWeekStart(d);
-    const days = Array.from({ length: 7 }, (_, i) => {
-      const x = new Date(start);
-      x.setDate(start.getDate() + i);
-      return x;
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    const weekly = eventsForWeek(d).sort((a, b) => {
+      const dateDiff = a.day.getTime() - b.day.getTime();
+      if (dateDiff !== 0) return dateDiff;
+      const ta = a.ev.allDay ? "00:00" : (a.ev.start || "23:59");
+      const tb = b.ev.allDay ? "00:00" : (b.ev.start || "23:59");
+      return ta.localeCompare(tb);
     });
-    const end = days[6];
     el.label.textContent = `${who} | ${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
-    el.grid.className = "calendar-grid week";
-    el.grid.innerHTML = days.map((x) => dateCell(x)).join("");
+    el.grid.className = "calendar-grid week-list";
+    el.grid.innerHTML = weekly.length
+      ? `<article class="cell"><h4>Weekly Events</h4><ul>${weekly.map(({ day, ev }) => {
+        const owner = displayMember(ev);
+        const involved = eventInvolvedNames(ev);
+        const involvedText = involved.length ? ` | Involved: ${escapeHtml(involved.join(", "))}` : "";
+        const timeText = ev.allDay ? "All Day" : (ev.start ? `${escapeHtml(ev.start)}-${escapeHtml(ev.end || "")}` : "Time TBD");
+        return `<li class="event-item" style="--member-color:${memberColor(owner)}"><div><strong>${day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} | ${timeText} | ${escapeHtml(ev.title)}</strong><div class="event-meta">${escapeHtml(owner)}${involvedText}</div></div></li>`;
+      }).join("")}</ul></article>`
+      : `<article class="cell"><h4>Weekly Events</h4><ul><li class='muted'>No events this week.</li></ul></article>`;
     return;
   }
 
@@ -499,9 +586,26 @@ function renderCalendar() {
 function renderRequests() {
   const rows = visibleRequests().map((r) => {
     const who = displayMember(r);
-    return `<li><div class="list-content"><span>${escapeHtml(r.text)}</span><span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span></div><button class="icon-btn" data-delete-request="${r.id}">✕</button></li>`;
+    const reqWhen = [r.requestedDate, r.requestedTime].filter(Boolean).join(" ");
+    return `<li><div class="list-content"><span>${escapeHtml(r.text)}</span>${reqWhen ? `<small>Requested: ${escapeHtml(reqWhen)}</small>` : ""}<span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span></div><button class="icon-btn" data-delete-request="${r.id}">✕</button></li>`;
   }).join("");
   el.requestList.innerHTML = rows || "<li class='muted'>No requests yet.</li>";
+}
+
+function renderRequestEventsList() {
+  const upcoming = [...state.events]
+    .sort((a, b) => {
+      const da = `${a.startDate || ""}${a.start || ""}`;
+      const db = `${b.startDate || ""}${b.start || ""}`;
+      return da.localeCompare(db);
+    })
+    .slice(0, 14);
+
+  el.requestEventsList.innerHTML = upcoming.map((ev) => {
+    const who = displayMember(ev);
+    const timeText = ev.allDay ? "All Day" : (ev.start ? `${ev.start}${ev.end ? `-${ev.end}` : ""}` : "Time TBD");
+    return `<li><div class="list-content"><strong>${escapeHtml(ev.title)}</strong><small>${escapeHtml(ev.startDate)} ${escapeHtml(timeText)}</small></div><span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span></li>`;
+  }).join("") || "<li class='muted'>No family events scheduled.</li>";
 }
 
 function renderRecurring() {
@@ -512,7 +616,47 @@ function renderRecurring() {
   el.recurringList.innerHTML = rows || "<li class='muted'>No recurring activities.</li>";
 }
 
+function mergedSources() {
+  const map = new Map();
+  for (const ev of state.events) {
+    if (!ev.importSourceId) continue;
+    const key = ev.importSourceId;
+    if (!map.has(key)) {
+      map.set(key, {
+        id: ev.importSourceId,
+        name: ev.importSourceName || "Imported calendar",
+        count: 0,
+        importedAt: ev.importedAt || 0,
+      });
+    }
+    const row = map.get(key);
+    row.count += 1;
+    if ((ev.importedAt || 0) > row.importedAt) row.importedAt = ev.importedAt || 0;
+  }
+  return Array.from(map.values()).sort((a, b) => b.importedAt - a.importedAt);
+}
+
+function renderMergedSources() {
+  const sources = mergedSources();
+  el.mergedSourcesList.innerHTML = sources.length
+    ? sources.map((s) => `
+      <li>
+        <div class="list-content">
+          <strong>${escapeHtml(s.name)}</strong>
+          <small>${s.count} event${s.count === 1 ? "" : "s"}</small>
+        </div>
+        <button class="icon-btn" data-remove-merged-source="${s.id}" title="Remove merged calendar">✕</button>
+      </li>
+    `).join("")
+    : "<li class='muted'>No merged calendars yet.</li>";
+
+  const options = ["<option value=\"all\">All merged calendars</option>"]
+    .concat(sources.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`));
+  el.oldMergedSource.innerHTML = options.join("");
+}
+
 function renderMemberList() {
+  if (!el.memberList) return;
   el.memberList.innerHTML = state.members.map((m) => `
     <li>
       <div class="list-content"><strong>${escapeHtml(m.name)}</strong><small>${escapeHtml(m.role)} | age ${m.age}</small></div>
@@ -522,6 +666,7 @@ function renderMemberList() {
 }
 
 function renderPersonEvents() {
+  if (!el.personEvents) return;
   const upcoming = visibleEvents()
     .slice()
     .sort((a, b) => `${a.startDate}${a.start}`.localeCompare(`${b.startDate}${b.start}`))
@@ -578,6 +723,17 @@ function setPlannerInputs() {
   el.plannerLocation.value = state.planner.location || "";
   el.plannerPrefs.value = state.planner.prefs || "";
   el.partnerEmail.value = state.planner.partnerEmail || "";
+  const meal = state.planner.meal || {};
+  if (el.mealPeople) el.mealPeople.value = String(meal.people || 4);
+  if (el.mealTime) el.mealTime.value = String(meal.timeMinutes || 45);
+  if (el.mealBudget) el.mealBudget.value = String(meal.budget || 80);
+  if (el.mealDay) {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    el.mealDay.value = meal.day || formatDate(tomorrow);
+  }
+  if (el.mealLocation) el.mealLocation.value = meal.location || state.planner.location || "";
+  if (el.mealPrefs) el.mealPrefs.value = meal.prefs || "";
 }
 
 function renderPlannerIdeas() {
@@ -595,6 +751,31 @@ function renderPlannerIdeas() {
     `;
   }).join("");
   el.plannerIdeas.innerHTML = rows || "<li class='muted'>No ideas yet. Generate suggestions.</li>";
+}
+
+function renderMealSuggestions() {
+  const meal = state.planner.meal || {};
+  const deals = Array.isArray(meal.deals) ? meal.deals : [];
+  const recipes = Array.isArray(meal.recipes) ? meal.recipes : [];
+  const nextDay = Array.isArray(meal.nextDay) ? meal.nextDay : [];
+
+  if (el.mealDealsList) {
+    el.mealDealsList.innerHTML = deals.length
+      ? deals.map((d) => `<li><div class="list-content"><strong>${escapeHtml(d.name || "Deal")}</strong><small>${escapeHtml(d.day || "")}${d.time ? ` | ${escapeHtml(d.time)}` : ""}</small><small>${escapeHtml(d.deal || "")}</small><small>${escapeHtml(d.notes || "")}</small></div></li>`).join("")
+      : "<li class='muted'>No deal suggestions yet.</li>";
+  }
+
+  if (el.mealRecipesList) {
+    el.mealRecipesList.innerHTML = recipes.length
+      ? recipes.map((r) => `<li><div class="list-content"><strong>${escapeHtml(r.name || "Recipe")}</strong><small>${escapeHtml(String(r.time_minutes || ""))} min${r.cost_estimate ? ` | ${escapeHtml(r.cost_estimate)}` : ""}</small><small>${escapeHtml(r.notes || "")}</small></div></li>`).join("")
+      : "<li class='muted'>No at-home recipes yet.</li>";
+  }
+
+  if (el.mealNextDayList) {
+    el.mealNextDayList.innerHTML = nextDay.length
+      ? nextDay.map((n) => `<li><div class="list-content"><strong>${escapeHtml(n.title || "Next Day")}</strong><small>${escapeHtml(n.type || "")}</small><small>${escapeHtml(n.notes || "")}</small></div></li>`).join("")
+      : "<li class='muted'>No next-day suggestions yet.</li>";
+  }
 }
 
 async function requestDateIdeas() {
@@ -618,6 +799,16 @@ async function requestDateIdeas() {
   });
 
   if (!r.ok) throw new Error("Date ideas request failed");
+  return r.json();
+}
+
+async function requestMealPlan(payload) {
+  const r = await fetch("/api/meal-plan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error("Meal plan request failed");
   return r.json();
 }
 
@@ -700,6 +891,19 @@ function parseIcal(text) {
 
     return { title: summary, startDate, endDate: endDate || startDate, start: startTime, end: endTime, recurring, allDay: !startTime && !endTime };
   }).filter((x) => x.startDate);
+}
+
+function sourceNameFromFileName(fileName) {
+  const clean = String(fileName || "Imported calendar").trim();
+  const stripped = clean.replace(/\.(ics|ical)$/i, "").trim();
+  return stripped || "Imported calendar";
+}
+
+function sourceForImport(fileName) {
+  const sourceName = sourceNameFromFileName(fileName);
+  const existing = mergedSources().find((s) => s.name.toLowerCase() === sourceName.toLowerCase());
+  if (existing) return { id: existing.id, name: existing.name };
+  return { id: `src-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: sourceName };
 }
 
 function escapeIcal(s) {
@@ -788,14 +992,24 @@ document.getElementById("eventForm").addEventListener("submit", async (e) => {
   renderCalendar();
   renderRecurring();
   renderPersonEvents();
+  renderRequestEventsList();
 });
 
 document.getElementById("requestForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = document.getElementById("requestInput").value.trim();
+  const requestedDate = document.getElementById("requestDate").value;
+  const requestedTime = document.getElementById("requestTime").value;
   const member = selectedMemberFrom(el.requestMember);
   if (!text || !member) return;
-  state.requests.unshift({ id: uid(), text, memberId: member.id, memberName: member.name });
+  state.requests.unshift({
+    id: uid(),
+    text,
+    requestedDate,
+    requestedTime,
+    memberId: member.id,
+    memberName: member.name,
+  });
   e.target.reset();
   populateMemberSelects();
   await saveState();
@@ -822,7 +1036,11 @@ document.getElementById("choreForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const title = document.getElementById("choreInput").value.trim();
   const frequency = document.getElementById("choreFrequency").value;
-  const member = selectedMemberFrom(el.choreMember);
+  const member = findMember(state.selectedPersonId);
+  if (!member) {
+    alert("Select a specific person tab first (not Family).");
+    return;
+  }
   if (!title || !member) return;
 
   state.chores.unshift({
@@ -835,7 +1053,6 @@ document.getElementById("choreForm").addEventListener("submit", async (e) => {
     memberName: member.name,
   });
   e.target.reset();
-  populateMemberSelects();
   await saveState();
   renderChores();
 });
@@ -873,11 +1090,57 @@ document.getElementById("plannerForm").addEventListener("submit", async (e) => {
   renderPlannerIdeas();
 });
 
+document.getElementById("mealPlannerForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const payload = {
+    people: Number(el.mealPeople?.value || 4),
+    timeMinutes: Number(el.mealTime?.value || 45),
+    budget: Number(el.mealBudget?.value || 80),
+    day: String(el.mealDay?.value || ""),
+    location: String(el.mealLocation?.value || "").trim(),
+    preferences: String(el.mealPrefs?.value || "").trim(),
+  };
+
+  state.planner.meal = {
+    ...state.planner.meal,
+    people: payload.people,
+    timeMinutes: payload.timeMinutes,
+    budget: payload.budget,
+    day: payload.day,
+    location: payload.location,
+    prefs: payload.preferences,
+  };
+
+  if (el.mealDealsList) el.mealDealsList.innerHTML = "<li>Generating local deal suggestions...</li>";
+  if (el.mealRecipesList) el.mealRecipesList.innerHTML = "<li>Generating at-home recipes...</li>";
+  if (el.mealNextDayList) el.mealNextDayList.innerHTML = "<li>Generating next-day ideas...</li>";
+
+  try {
+    const data = await requestMealPlan(payload);
+    state.planner.meal.deals = Array.isArray(data.deals) ? data.deals : [];
+    state.planner.meal.recipes = Array.isArray(data.recipes) ? data.recipes : [];
+    state.planner.meal.nextDay = Array.isArray(data.nextDay) ? data.nextDay : [];
+  } catch (_err) {
+    state.planner.meal.deals = [];
+    state.planner.meal.recipes = [];
+    state.planner.meal.nextDay = [];
+    if (el.mealDealsList) el.mealDealsList.innerHTML = "<li>Could not generate meal suggestions. Check OpenAI config.</li>";
+    if (el.mealRecipesList) el.mealRecipesList.innerHTML = "<li class='muted'>No recipes generated.</li>";
+    if (el.mealNextDayList) el.mealNextDayList.innerHTML = "<li class='muted'>No next-day ideas generated.</li>";
+    await saveState();
+    return;
+  }
+
+  await saveState();
+  renderMealSuggestions();
+});
+
 document.getElementById("icalForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const file = document.getElementById("icalFile").files?.[0];
   const member = selectedMemberFrom(el.icalMember);
   if (!file || !member) return;
+  const source = sourceForImport(file.name);
   const text = await file.text();
   const incoming = parseIcal(text);
   let merged = 0;
@@ -896,6 +1159,9 @@ document.getElementById("icalForm").addEventListener("submit", async (e) => {
       memberId: member.id,
       memberName: member.name,
       involvedMemberIds: [member.id],
+      importSourceId: source.id,
+      importSourceName: source.name,
+      importedAt: Date.now(),
       recurring: ev.recurring,
     });
     merged += 1;
@@ -905,8 +1171,48 @@ document.getElementById("icalForm").addEventListener("submit", async (e) => {
   renderCalendar();
   renderRecurring();
   renderPersonEvents();
+  renderRequestEventsList();
+  renderMergedSources();
   document.getElementById("icalFile").value = "";
   alert(`Merged ${merged} event${merged === 1 ? "" : "s"}.`);
+});
+
+el.mergedSourcesList.addEventListener("click", async (e) => {
+  const sourceId = e.target.dataset.removeMergedSource;
+  if (!sourceId) return;
+  const before = state.events.length;
+  state.events = state.events.filter((ev) => ev.importSourceId !== sourceId);
+  const removed = before - state.events.length;
+  await saveState();
+  renderCalendar();
+  renderRecurring();
+  renderPersonEvents();
+  renderRequestEventsList();
+  renderMergedSources();
+  alert(`Removed ${removed} imported event${removed === 1 ? "" : "s"}.`);
+});
+
+document.getElementById("removeOldMergedForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const beforeDate = el.oldMergedBefore.value;
+  const sourceId = el.oldMergedSource.value;
+  if (!beforeDate) return;
+
+  const beforeCount = state.events.length;
+  state.events = state.events.filter((ev) => {
+    if (!ev.importSourceId) return true;
+    if (sourceId !== "all" && ev.importSourceId !== sourceId) return true;
+    const compareDate = ev.endDate || ev.startDate;
+    if (!compareDate) return true;
+    return compareDate >= beforeDate;
+  });
+  const removed = beforeCount - state.events.length;
+  await saveState();
+  renderCalendar();
+  renderRecurring();
+  renderPersonEvents();
+  renderMergedSources();
+  alert(`Removed ${removed} old imported event${removed === 1 ? "" : "s"}.`);
 });
 
 document.getElementById("exportIcalBtn").addEventListener("click", () => {
@@ -939,6 +1245,7 @@ el.recurringList.addEventListener("click", async (e) => {
   renderCalendar();
   renderRecurring();
   renderPersonEvents();
+  renderRequestEventsList();
 });
 
 el.memberList.addEventListener("click", async (e) => {
@@ -1019,6 +1326,7 @@ el.plannerIdeas.addEventListener("click", async (e) => {
   await saveState();
   renderCalendar();
   renderPersonEvents();
+  renderRequestEventsList();
   alert("Date added to calendar.");
 
   if (state.planner.partnerEmail) {
@@ -1049,6 +1357,12 @@ el.grid.addEventListener("change", async (e) => {
 
 el.personTabs.addEventListener("click", (e) => {
   const id = e.target.dataset.personId;
+  if (!id) return;
+  setSelectedPerson(id);
+});
+
+el.choresPersonTabs?.addEventListener("click", (e) => {
+  const id = e.target.dataset.choresPersonId;
   if (!id) return;
   setSelectedPerson(id);
 });
@@ -1090,17 +1404,21 @@ el.viewBtns.forEach((b) => b.addEventListener("click", () => setView(b.dataset.v
 function render() {
   setMainTab(state.activeTab, false);
   renderPersonTabs();
+  renderChoresPersonTabs();
   populateMemberSelects();
   renderInvolvedChecklist();
   renderCalendar();
   renderRequests();
+  renderRequestEventsList();
   renderRecurring();
+  renderMergedSources();
   renderMemberList();
   renderPersonEvents();
   renderChores();
   updateChoreNote();
   setPlannerInputs();
   renderPlannerIdeas();
+  renderMealSuggestions();
 }
 
 (async () => {

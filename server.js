@@ -166,6 +166,81 @@ async function handleDateIdeas(req, res) {
   }
 }
 
+async function handleMealPlan(req, res) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    sendJson(res, 500, { error: "OPENAI_API_KEY is not configured" });
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (_err) {
+    bad(res, "Invalid JSON");
+    return;
+  }
+
+  const people = Number(payload.people || 0);
+  const timeMinutes = Number(payload.timeMinutes || 0);
+  const budget = Number(payload.budget || 0);
+  const day = String(payload.day || "").trim();
+  const location = String(payload.location || "").trim();
+  const preferences = String(payload.preferences || "").trim();
+
+  if (!people || !timeMinutes || !budget || !day || !location) {
+    bad(res, "people, timeMinutes, budget, day, and location are required");
+    return;
+  }
+
+  const prompt = [
+    `Create a meal plan for ${people} people in ${location}.`,
+    `Target day: ${day}.`,
+    `Max cooking time: ${timeMinutes} minutes.`,
+    `Budget target: $${budget}.`,
+    `Preferences: ${preferences || "none provided"}.`,
+    "Return strict JSON only with this shape:",
+    "{\"deals\":[{\"name\":string,\"day\":string,\"time\":string,\"deal\":string,\"notes\":string}],\"recipes\":[{\"name\":string,\"time_minutes\":number,\"cost_estimate\":string,\"notes\":string}],\"nextDay\":[{\"title\":string,\"type\":\"deal|recipe\",\"notes\":string}]}",
+    "For deals: provide likely local weekly/special deals for that day (best available suggestion) and clearly note if estimated.",
+    "For recipes: all recipes must be possible within the time limit.",
+    "For nextDay: provide 3 concise suggestions for the following day.",
+  ].join("\n");
+
+  try {
+    const openaiRes = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+        input: prompt,
+      }),
+    });
+
+    if (!openaiRes.ok) {
+      const errText = await openaiRes.text();
+      sendJson(res, 500, { error: `OpenAI request failed: ${errText}` });
+      return;
+    }
+
+    const apiData = await openaiRes.json();
+    const text = firstTextFromResponse(apiData).trim();
+    const jsonStart = text.indexOf("{");
+    const jsonText = jsonStart >= 0 ? text.slice(jsonStart) : text;
+    const parsed = JSON.parse(jsonText || "{}");
+
+    sendJson(res, 200, {
+      deals: Array.isArray(parsed.deals) ? parsed.deals.slice(0, 8) : [],
+      recipes: Array.isArray(parsed.recipes) ? parsed.recipes.slice(0, 8) : [],
+      nextDay: Array.isArray(parsed.nextDay) ? parsed.nextDay.slice(0, 6) : [],
+    });
+  } catch (err) {
+    sendJson(res, 500, { error: `Could not generate meal plan: ${err.message}` });
+  }
+}
+
 async function handleState(req, res, url) {
   const room = url.searchParams.get("room");
   if (!validRoom(room)) {
@@ -229,6 +304,11 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === "/api/date-ideas" && req.method === "POST") {
     await handleDateIdeas(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/meal-plan" && req.method === "POST") {
+    await handleMealPlan(req, res);
     return;
   }
 
