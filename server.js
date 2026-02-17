@@ -338,7 +338,7 @@ async function handleChoreSchedule(req, res) {
 
   const weekStart = String(payload.weekStart || "").trim();
   const dailyMax = Math.max(1, Math.min(6, Number(payload.dailyMax) || 2));
-  const targetPerPerson = Math.max(1, Math.min(10, Number(payload.targetPerPerson) || 5));
+  const targetPerPerson = Math.max(1, Math.min(70, Number(payload.targetPerPerson) || 35));
   const members = Array.isArray(payload.members) ? payload.members : [];
   const chores = Array.isArray(payload.chores) ? payload.chores : [];
   if (!weekStart || !members.length || !chores.length) {

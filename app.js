@@ -843,6 +843,22 @@ function hasWeeklyQuota(assignments, weekStart, targetPerPerson = 5) {
   return state.members.every((m) => (counts.get(m.id) || 0) >= targetPerPerson);
 }
 
+function hasExactDailyQuota(assignments, weekStart, dailyPerPerson = 5) {
+  const weekDays = weekDatesFrom(weekStart);
+  const countMap = new Map();
+  for (const row of assignments) {
+    if (!inWeek(row.scheduledDate, weekStart)) continue;
+    const key = `${row.userId}|${row.scheduledDate}`;
+    countMap.set(key, (countMap.get(key) || 0) + 1);
+  }
+  for (const m of state.members) {
+    for (const d of weekDays) {
+      if ((countMap.get(`${m.id}|${d}`) || 0) !== dailyPerPerson) return false;
+    }
+  }
+  return true;
+}
+
 function inWeek(isoDate, weekStart) {
   return isoDate >= weekStart && isoDate <= addDaysIso(weekStart, 6);
 }
@@ -1007,7 +1023,7 @@ function dateCell(date, includeDayChores = false) {
   }).join("");
 
   const choresBlock = includeDayChores
-    ? `<div class="day-chores"><h4>Daily Chores</h4><ul>${assignmentsForDate(date).map((a) => `<li><label><input type="checkbox" data-toggle-assignment="${a.id}" ${a.status === "completed" ? "checked" : ""} /><span class="${a.status === "completed" ? "done" : ""}">${escapeHtml(a.choreTitle)} <small>(${a.pointsAwarded} pt)</small></span></label></li>`).join("") || "<li class='muted'>No chores scheduled</li>"}</ul></div>`
+    ? `<div class="day-chores"><h4>Daily Chores</h4><ul>${assignmentsForDate(date).map((a) => `<li><label><input type="checkbox" data-toggle-assignment="${a.id}" ${a.status === "completed" ? "checked" : ""} /><span class="${a.status === "completed" ? "done" : ""}">${escapeHtml(a.choreTitle)}</span></label></li>`).join("") || "<li class='muted'>No chores scheduled</li>"}</ul></div>`
     : "";
 
   return `
@@ -1269,7 +1285,7 @@ function renderDailyAssignments() {
   if (!el.dailyAssignmentsList) return;
   el.dailyAssignmentsList.innerHTML = rows.map((a) => {
     const who = findMember(a.userId)?.name || a.userName || "Unknown";
-    return `<li class="assignment-row ${a.status === "completed" ? "assignment-completed" : (a.status === "skipped" ? "assignment-skipped" : "")}"><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(date)} | ${escapeHtml(who)} | ${a.pointsAwarded} pt</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
+    return `<li class="assignment-row ${a.status === "completed" ? "assignment-completed" : (a.status === "skipped" ? "assignment-skipped" : "")}"><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(date)} | ${escapeHtml(who)}</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
   }).join("") || "<li class='muted'>No assignments for this day.</li>";
 }
 
@@ -1317,7 +1333,7 @@ function renderCalendarAssignedChores() {
 
   el.calendarAssignedChores.innerHTML = rows.map((a) => {
     const who = findMember(a.userId)?.name || a.userName || "Unknown";
-    return `<li class="assignment-row ${a.status === "completed" ? "assignment-completed" : (a.status === "skipped" ? "assignment-skipped" : "")}"><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(a.scheduledDate)} | ${escapeHtml(who)} | ${a.pointsAwarded} pt</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
+    return `<li class="assignment-row ${a.status === "completed" ? "assignment-completed" : (a.status === "skipped" ? "assignment-skipped" : "")}"><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(a.scheduledDate)} | ${escapeHtml(who)}</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
   }).join("") || "<li class='muted'>No scheduled chores for this week.</li>";
 }
 
@@ -1325,7 +1341,7 @@ async function generateWeeklyChoreSchedule() {
   ensureGameDefaults();
   const weekStart = weekStartIso(state.currentDate);
   const dailyMax = 5;
-  const targetPerPerson = 7;
+  const targetPerPerson = 35;
   let source = "AI";
 
   let assignments = [];
@@ -1343,7 +1359,7 @@ async function generateWeeklyChoreSchedule() {
     assignments = [];
   }
 
-  if (!assignments.length) {
+  if (!assignments.length || !hasExactDailyQuota(assignments, weekStart, dailyMax)) {
     assignments = enforceDailyAssignmentCap(generateBalancedAssignments(weekStart, dailyMax, targetPerPerson), dailyMax);
     source = "Balanced local planner";
   }
@@ -1362,13 +1378,13 @@ async function generateWeeklyChoreSchedule() {
   renderNights();
   renderCalendarAssignedChores();
   if (el.choreGenNote) {
-    el.choreGenNote.textContent = `Generated weekly chores for ${weekStart} with max 5 chores/day per person. Source: ${source}.`;
+    el.choreGenNote.textContent = `Generated weekly chores for ${weekStart}: 5 chores/day per person (35/week). Source: ${source}.`;
   }
 }
 
 function updateChoreNote() {
   if (!el.choreGenNote) return;
-  el.choreGenNote.textContent = "Generates an age-appropriate weekly schedule with max 5 chores/day per person.";
+  el.choreGenNote.textContent = "Generates an age-appropriate schedule with 5 chores/day per person (35/week).";
 }
 
 function generatedChoresFor(member) {
