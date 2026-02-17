@@ -321,6 +321,84 @@ async function handleMealPlan(req, res) {
   }
 }
 
+async function handleChoreSchedule(req, res) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    sendJson(res, 500, { error: "OPENAI_API_KEY is not configured" });
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (_err) {
+    bad(res, "Invalid JSON");
+    return;
+  }
+
+  const weekStart = String(payload.weekStart || "").trim();
+  const dailyMax = Math.max(1, Math.min(6, Number(payload.dailyMax) || 2));
+  const members = Array.isArray(payload.members) ? payload.members : [];
+  const chores = Array.isArray(payload.chores) ? payload.chores : [];
+  if (!weekStart || !members.length || !chores.length) {
+    bad(res, "weekStart, members, and chores are required");
+    return;
+  }
+
+  const systemPrompt = [
+    "Create a weekly chore schedule under the Chore Tabs section.",
+    "The AI must distribute chores evenly across all seven days of the week so that no single day is overloaded or significantly lighter than the others.",
+    "Ensure responsibilities are spread fairly among all participants.",
+    "Assign only age-appropriate and ability-appropriate tasks.",
+    "Avoid clustering similar chores on the same day unless necessary.",
+    "The final output should show a balanced, realistic weekly plan that promotes consistency and fairness.",
+    "",
+    "Output strict JSON only:",
+    "{\"assignments\":[{\"userId\":\"string\",\"choreTitle\":\"string\",\"scheduledDate\":\"YYYY-MM-DD\",\"difficulty\":1,\"estimatedMinutes\":20,\"category\":\"string\",\"ageMin\":0}]}",
+    "Return only dates from Monday to Sunday of the requested week.",
+    `Daily max chores per person: ${dailyMax}`,
+  ].join("\n");
+
+  const userPrompt = [
+    `Week start (Monday): ${weekStart}`,
+    `Members: ${JSON.stringify(members)}`,
+    `Chore catalog: ${JSON.stringify(chores)}`,
+  ].join("\n");
+
+  try {
+    const openaiRes = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+        input: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+    });
+
+    if (!openaiRes.ok) {
+      const errText = await openaiRes.text();
+      sendJson(res, 500, { error: `OpenAI request failed: ${errText}` });
+      return;
+    }
+
+    const apiData = await openaiRes.json();
+    const text = firstTextFromResponse(apiData).trim();
+    const jsonStart = text.indexOf("{");
+    const jsonText = jsonStart >= 0 ? text.slice(jsonStart) : text;
+    const parsed = JSON.parse(jsonText || "{}");
+    const assignments = Array.isArray(parsed.assignments) ? parsed.assignments : [];
+    sendJson(res, 200, { assignments });
+  } catch (err) {
+    sendJson(res, 500, { error: `Could not generate chore schedule: ${err.message}` });
+  }
+}
+
 async function handleState(req, res, url) {
   const room = url.searchParams.get("room");
   if (!validRoom(room)) {
@@ -389,6 +467,11 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === "/api/meal-plan" && req.method === "POST") {
     await handleMealPlan(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/chore-schedule" && req.method === "POST") {
+    await handleChoreSchedule(req, res);
     return;
   }
 

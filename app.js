@@ -10,6 +10,19 @@ const state = {
   requests: [],
   todos: [],
   chores: [],
+  game: {
+    scheduleWeekStart: "",
+    selectedDate: "",
+    assignments: [],
+    nights: [],
+    activities: [],
+    settings: {
+      scoreByDifficulty: { 1: 1, 2: 2, 3: 3 },
+      allowReroll: true,
+      cutoffDow: 0,
+      cutoffHour: 20,
+    },
+  },
   editingEventId: "",
   editingEventInvolvedIds: [],
   planner: {
@@ -101,6 +114,20 @@ const el = {
   eventRecurring: document.getElementById("eventRecurring"),
   eventSubmitBtn: document.getElementById("eventSubmitBtn"),
   eventCancelBtn: document.getElementById("eventCancelBtn"),
+  choreGameWeekStart: document.getElementById("choreGameWeekStart"),
+  choreDailyMax: document.getElementById("choreDailyMax"),
+  generateWeeklyChoreGameBtn: document.getElementById("generateWeeklyChoreGameBtn"),
+  finalizeWeekBtn: document.getElementById("finalizeWeekBtn"),
+  choreGameDate: document.getElementById("choreGameDate"),
+  dailyAssignmentsList: document.getElementById("dailyAssignmentsList"),
+  weeklyLoadList: document.getElementById("weeklyLoadList"),
+  gameLeaderboardList: document.getElementById("gameLeaderboardList"),
+  nightsList: document.getElementById("nightsList"),
+  scoreDiff1: document.getElementById("scoreDiff1"),
+  scoreDiff2: document.getElementById("scoreDiff2"),
+  scoreDiff3: document.getElementById("scoreDiff3"),
+  allowReroll: document.getElementById("allowReroll"),
+  saveGameSettingsBtn: document.getElementById("saveGameSettingsBtn"),
 };
 
 function uid() {
@@ -192,6 +219,59 @@ function normalizeChore(c) {
   };
 }
 
+function normalizeGame(g) {
+  const score = g?.settings?.scoreByDifficulty || {};
+  return {
+    scheduleWeekStart: g?.scheduleWeekStart || "",
+    selectedDate: g?.selectedDate || "",
+    assignments: Array.isArray(g?.assignments) ? g.assignments.map((a) => ({
+      id: a.id || uid(),
+      choreId: a.choreId || "",
+      choreTitle: a.choreTitle || "Chore",
+      userId: a.userId || "",
+      userName: a.userName || "",
+      scheduledDate: a.scheduledDate || "",
+      status: ["assigned", "completed", "skipped"].includes(a.status) ? a.status : "assigned",
+      completedAt: a.completedAt || "",
+      pointsAwarded: Number(a.pointsAwarded) || 0,
+      difficulty: Math.max(1, Math.min(3, Number(a.difficulty) || 1)),
+      estimatedMinutes: Number(a.estimatedMinutes) || 15,
+      category: a.category || "general",
+      ageMin: Number(a.ageMin) || 0,
+    })) : [],
+    nights: Array.isArray(g?.nights) ? g.nights.map((n) => ({
+      id: n.id || uid(),
+      type: n.type === "funNight" ? "funNight" : "gameNight",
+      scheduledDate: n.scheduledDate || "",
+      winnerUserId: n.winnerUserId || "",
+      winnerUserIds: Array.isArray(n.winnerUserIds) ? n.winnerUserIds : [],
+      randomizerUnlocked: !!n.randomizerUnlocked,
+      randomizerUsedAt: n.randomizerUsedAt || "",
+      selectedActivityId: n.selectedActivityId || "",
+      rerollUsed: !!n.rerollUsed,
+      rerollLog: Array.isArray(n.rerollLog) ? n.rerollLog : [],
+    })) : [],
+    activities: Array.isArray(g?.activities) ? g.activities.map((a) => ({
+      id: a.id || uid(),
+      type: a.type === "funNight" ? "funNight" : "gameNight",
+      title: a.title || "Activity",
+      tags: Array.isArray(a.tags) ? a.tags : [],
+      durationMinutes: Number(a.durationMinutes) || 60,
+      active: a.active !== false,
+    })) : [],
+    settings: {
+      scoreByDifficulty: {
+        1: Number(score[1]) || 1,
+        2: Number(score[2]) || 2,
+        3: Number(score[3]) || 3,
+      },
+      allowReroll: g?.settings?.allowReroll !== false,
+      cutoffDow: Number(g?.settings?.cutoffDow) || 0,
+      cutoffHour: Number(g?.settings?.cutoffHour) || 20,
+    },
+  };
+}
+
 function normalizePayload(p) {
   return {
     members: (Array.isArray(p.members) ? p.members : []).map(normalizeMember),
@@ -226,6 +306,7 @@ function normalizePayload(p) {
         rawText: p.planner?.meal?.rawText || "",
       },
     },
+    game: normalizeGame(p.game || {}),
     lastUpdatedAt: Number(p.lastUpdatedAt) || 0,
   };
 }
@@ -239,6 +320,7 @@ function applyLoadedState(raw) {
   state.selectedPersonId = p.selectedPersonId;
   state.activeTab = p.activeTab;
   state.planner = p.planner;
+  state.game = p.game;
   state.lastUpdatedAt = p.lastUpdatedAt;
   backfillLinks();
 
@@ -256,6 +338,7 @@ function serializeState() {
     selectedPersonId: state.selectedPersonId,
     activeTab: state.activeTab,
     planner: state.planner,
+    game: state.game,
     lastUpdatedAt: state.lastUpdatedAt,
   };
 }
@@ -374,6 +457,16 @@ function backfillLinks() {
       }
     }
   }
+  for (const a of state.game.assignments) {
+    if (!a.userId && a.userName) {
+      const m = findMemberByName(a.userName);
+      if (m) a.userId = m.id;
+    }
+    if (a.userId && !a.userName) {
+      const m = findMember(a.userId);
+      if (m) a.userName = m.name;
+    }
+  }
 }
 
 function matchesSelected(item) {
@@ -413,6 +506,8 @@ function setSelectedPerson(id, save = true) {
   renderRequestEventsList();
   renderRecurring();
   renderChores();
+  renderDailyAssignments();
+  renderGameLeaderboard();
   updateChoreNote();
   if (save) saveState();
 }
@@ -537,6 +632,228 @@ function getWeekStart(date) {
   d.setDate(d.getDate() - d.getDay());
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+function getWeekStartMonday(input) {
+  const d = new Date(typeof input === "string" ? `${input}T00:00:00` : input);
+  const day = d.getDay();
+  const shift = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + shift);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function weekStartIso(input) {
+  return formatDate(getWeekStartMonday(input || new Date()));
+}
+
+function weekDatesFrom(weekStartIsoDate) {
+  return Array.from({ length: 7 }, (_, i) => addDaysIso(weekStartIsoDate, i));
+}
+
+function defaultGameActivities() {
+  return [
+    { id: uid(), type: "gameNight", title: "Board Game Tournament", tags: ["indoor"], durationMinutes: 90, active: true },
+    { id: uid(), type: "gameNight", title: "Card Night + Snacks", tags: ["indoor"], durationMinutes: 75, active: true },
+    { id: uid(), type: "funNight", title: "Family Movie Night", tags: ["indoor"], durationMinutes: 120, active: true },
+    { id: uid(), type: "funNight", title: "Bowling Night", tags: ["outdoor"], durationMinutes: 120, active: true },
+  ];
+}
+
+function ensureGameDefaults() {
+  if (!state.game.scheduleWeekStart) state.game.scheduleWeekStart = weekStartIso(new Date());
+  if (!state.game.selectedDate) state.game.selectedDate = formatDate(new Date());
+  if (!Array.isArray(state.game.activities) || !state.game.activities.length) {
+    state.game.activities = defaultGameActivities();
+  }
+  ensureNightsForWeek(state.game.scheduleWeekStart);
+}
+
+function ensureNightsForWeek(weekStart) {
+  const gameDate = addDaysIso(weekStart, 4);
+  const funDate = addDaysIso(weekStart, 5);
+  const upsert = (type, scheduledDate) => {
+    let n = state.game.nights.find((x) => x.type === type && x.scheduledDate === scheduledDate);
+    if (!n) {
+      n = {
+        id: uid(),
+        type,
+        scheduledDate,
+        winnerUserId: "",
+        winnerUserIds: [],
+        randomizerUnlocked: false,
+        randomizerUsedAt: "",
+        selectedActivityId: "",
+        rerollUsed: false,
+        rerollLog: [],
+      };
+      state.game.nights.push(n);
+    }
+  };
+  upsert("gameNight", gameDate);
+  upsert("funNight", funDate);
+}
+
+function choreTemplates() {
+  const map = new Map();
+  for (const c of state.chores) {
+    const key = String(c.title || "").trim().toLowerCase();
+    if (!key) continue;
+    const member = findMember(c.memberId);
+    const difficulty = c.frequency === "Monthly" ? 3 : c.frequency === "Weekly" ? 2 : 1;
+    const tpl = map.get(key) || {
+      id: `ch-${key.replace(/[^a-z0-9]+/g, "-")}`,
+      title: c.title,
+      difficulty,
+      estimatedMinutes: difficulty === 3 ? 45 : difficulty === 2 ? 30 : 20,
+      ageMin: member?.role === "adult" ? 16 : Math.max(5, Number(member?.age) || 8),
+      category: key.split(" ")[0] || "general",
+      active: true,
+    };
+    if (member?.role === "adult") tpl.ageMin = Math.max(tpl.ageMin, 16);
+    map.set(key, tpl);
+  }
+  if (!map.size) {
+    return [
+      { id: uid(), title: "Kitchen cleanup", difficulty: 1, estimatedMinutes: 20, ageMin: 8, category: "kitchen", active: true },
+      { id: uid(), title: "Laundry sort", difficulty: 2, estimatedMinutes: 30, ageMin: 10, category: "laundry", active: true },
+      { id: uid(), title: "Trash and recycling", difficulty: 2, estimatedMinutes: 20, ageMin: 10, category: "home", active: true },
+      { id: uid(), title: "Vacuum common areas", difficulty: 3, estimatedMinutes: 40, ageMin: 12, category: "cleaning", active: true },
+    ];
+  }
+  return Array.from(map.values());
+}
+
+function memberEligibleForTemplate(member, tpl) {
+  return Number(member.age || 0) >= Number(tpl.ageMin || 0);
+}
+
+function generateBalancedAssignments(weekStart, dailyMaxPerPerson) {
+  const members = state.members.slice();
+  const templates = choreTemplates().filter((t) => t.active);
+  const days = weekDatesFrom(weekStart);
+  const perMemberTotal = new Map(members.map((m) => [m.id, 0]));
+  const templateUse = new Map(templates.map((t) => [t.id, 0]));
+  const out = [];
+
+  for (const day of days) {
+    const dayCategoryCount = new Map();
+    const orderedMembers = members.slice().sort((a, b) => perMemberTotal.get(a.id) - perMemberTotal.get(b.id));
+    for (const member of orderedMembers) {
+      let assignedTodayForMember = out.filter((a) => a.userId === member.id && a.scheduledDate === day).length;
+      if (assignedTodayForMember >= dailyMaxPerPerson) continue;
+
+      const eligible = templates.filter((tpl) => memberEligibleForTemplate(member, tpl));
+      if (!eligible.length) continue;
+
+      const best = eligible
+        .slice()
+        .sort((a, b) => {
+          const ac = dayCategoryCount.get(a.category) || 0;
+          const bc = dayCategoryCount.get(b.category) || 0;
+          if (ac !== bc) return ac - bc;
+          const au = templateUse.get(a.id) || 0;
+          const bu = templateUse.get(b.id) || 0;
+          if (au !== bu) return au - bu;
+          return a.title.localeCompare(b.title);
+        })[0];
+
+      const points = Number(state.game.settings.scoreByDifficulty[best.difficulty]) || best.difficulty;
+      out.push({
+        id: uid(),
+        choreId: best.id,
+        choreTitle: best.title,
+        userId: member.id,
+        userName: member.name,
+        scheduledDate: day,
+        status: "assigned",
+        completedAt: "",
+        pointsAwarded: points,
+        difficulty: best.difficulty,
+        estimatedMinutes: best.estimatedMinutes,
+        category: best.category,
+        ageMin: best.ageMin,
+      });
+      assignedTodayForMember += 1;
+      perMemberTotal.set(member.id, (perMemberTotal.get(member.id) || 0) + 1);
+      templateUse.set(best.id, (templateUse.get(best.id) || 0) + 1);
+      dayCategoryCount.set(best.category, (dayCategoryCount.get(best.category) || 0) + 1);
+    }
+  }
+
+  return out;
+}
+
+function inWeek(isoDate, weekStart) {
+  return isoDate >= weekStart && isoDate <= addDaysIso(weekStart, 6);
+}
+
+function weekAssignments(weekStart) {
+  return state.game.assignments.filter((a) => inWeek(a.scheduledDate, weekStart));
+}
+
+function computeLeaderboard(weekStart) {
+  const sunday = addDaysIso(weekStart, 6);
+  const base = new Map(state.members.map((m) => [m.id, {
+    userId: m.id,
+    userName: m.name,
+    points: 0,
+    completed: 0,
+    finalDayEarliest: "",
+  }]));
+
+  for (const a of weekAssignments(weekStart)) {
+    if (a.status !== "completed") continue;
+    const row = base.get(a.userId);
+    if (!row) continue;
+    row.points += Number(a.pointsAwarded) || 0;
+    row.completed += 1;
+    if (a.scheduledDate === sunday && a.completedAt) {
+      if (!row.finalDayEarliest || a.completedAt < row.finalDayEarliest) row.finalDayEarliest = a.completedAt;
+    }
+  }
+
+  const rows = Array.from(base.values()).sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    if (b.completed !== a.completed) return b.completed - a.completed;
+    if (a.finalDayEarliest && b.finalDayEarliest) return a.finalDayEarliest.localeCompare(b.finalDayEarliest);
+    if (a.finalDayEarliest) return -1;
+    if (b.finalDayEarliest) return 1;
+    return a.userName.localeCompare(b.userName);
+  });
+
+  if (!rows.length) return { rows, winners: [] };
+  const topPoints = rows[0].points;
+  let contenders = rows.filter((r) => r.points === topPoints);
+  if (contenders.length > 1) {
+    const topCompleted = Math.max(...contenders.map((r) => r.completed));
+    contenders = contenders.filter((r) => r.completed === topCompleted);
+  }
+  if (contenders.length > 1) {
+    const withFinal = contenders.filter((r) => r.finalDayEarliest);
+    if (withFinal.length) {
+      const earliest = withFinal.reduce((min, r) => (r.finalDayEarliest < min ? r.finalDayEarliest : min), withFinal[0].finalDayEarliest);
+      contenders = withFinal.filter((r) => r.finalDayEarliest === earliest);
+    }
+  }
+
+  return { rows, winners: contenders.map((x) => x.userId) };
+}
+
+function activityById(id) {
+  return state.game.activities.find((a) => a.id === id) || null;
+}
+
+function randomActivityForType(type) {
+  const active = state.game.activities.filter((a) => a.type === type && a.active);
+  if (!active.length) return null;
+  const previous = state.game.nights
+    .filter((n) => n.type === type && n.selectedActivityId)
+    .sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate))[0];
+  const excludeId = previous?.selectedActivityId;
+  const pool = active.filter((a) => a.id !== excludeId);
+  const choices = pool.length ? pool : active;
+  return choices[Math.floor(Math.random() * choices.length)] || null;
 }
 
 function occursOnDate(ev, dateObj, targetIso) {
@@ -786,6 +1103,66 @@ function renderChores() {
   }).join("") || "<li class='muted'>No chores for this view.</li>";
 }
 
+function renderChoreGameControls() {
+  ensureGameDefaults();
+  if (el.choreGameWeekStart) el.choreGameWeekStart.value = state.game.scheduleWeekStart;
+  if (el.choreGameDate) el.choreGameDate.value = state.game.selectedDate || state.game.scheduleWeekStart;
+  if (el.scoreDiff1) el.scoreDiff1.value = String(state.game.settings.scoreByDifficulty[1] || 1);
+  if (el.scoreDiff2) el.scoreDiff2.value = String(state.game.settings.scoreByDifficulty[2] || 2);
+  if (el.scoreDiff3) el.scoreDiff3.value = String(state.game.settings.scoreByDifficulty[3] || 3);
+  if (el.allowReroll) el.allowReroll.checked = state.game.settings.allowReroll !== false;
+}
+
+function visibleAssignmentsForDate(isoDate) {
+  const rows = state.game.assignments.filter((a) => a.scheduledDate === isoDate);
+  if (state.selectedPersonId === "family") return rows;
+  return rows.filter((a) => a.userId === state.selectedPersonId);
+}
+
+function renderDailyAssignments() {
+  const date = state.game.selectedDate || state.game.scheduleWeekStart;
+  const rows = visibleAssignmentsForDate(date);
+  if (!el.dailyAssignmentsList) return;
+  el.dailyAssignmentsList.innerHTML = rows.map((a) => {
+    const who = findMember(a.userId)?.name || a.userName || "Unknown";
+    return `<li><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(date)} | ${escapeHtml(who)} | ${a.pointsAwarded} pt</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
+  }).join("") || "<li class='muted'>No assignments for this day.</li>";
+}
+
+function renderWeeklyLoad() {
+  if (!el.weeklyLoadList) return;
+  const days = weekDatesFrom(state.game.scheduleWeekStart);
+  const rows = days.map((d) => {
+    const count = state.game.assignments.filter((a) => a.scheduledDate === d).length;
+    return { d, count };
+  });
+  const avg = rows.length ? rows.reduce((sum, r) => sum + r.count, 0) / rows.length : 0;
+  el.weeklyLoadList.innerHTML = rows.map((r) => `<li><div class="list-content"><strong>${escapeHtml(r.d)}</strong><small>${r.count} chore${r.count === 1 ? "" : "s"} assigned</small></div><small class="muted">${Math.abs(r.count - avg) <= 1 ? "balanced" : "adjust"}</small></li>`).join("");
+}
+
+function renderGameLeaderboard() {
+  if (!el.gameLeaderboardList) return;
+  const board = computeLeaderboard(state.game.scheduleWeekStart);
+  const winners = new Set(board.winners);
+  el.gameLeaderboardList.innerHTML = board.rows.map((r) => {
+    const winnerText = winners.has(r.userId) ? " | Winner" : "";
+    const finalText = r.finalDayEarliest ? ` | Final-day tie-break: ${new Date(r.finalDayEarliest).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
+    return `<li><div class="list-content"><strong>${escapeHtml(r.userName)}</strong><small>${r.points} points | ${r.completed} completed${winnerText}</small><small>${escapeHtml(finalText)}</small></div></li>`;
+  }).join("") || "<li class='muted'>No leaderboard data this week.</li>";
+}
+
+function renderNights() {
+  if (!el.nightsList) return;
+  const nights = state.game.nights
+    .filter((n) => inWeek(n.scheduledDate, state.game.scheduleWeekStart))
+    .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+  el.nightsList.innerHTML = nights.map((n) => {
+    const winnerNames = (n.winnerUserIds || []).map((id) => findMember(id)?.name).filter(Boolean);
+    const selected = activityById(n.selectedActivityId);
+    return `<li><div class="list-content"><strong>${n.type === "gameNight" ? "Game Night" : "Fun Night"} - ${escapeHtml(n.scheduledDate)}</strong><small>${n.randomizerUnlocked ? "Unlocked" : "Locked"}${winnerNames.length ? ` | Winner: ${escapeHtml(winnerNames.join(", "))}` : ""}</small><small>${selected ? `Selected: ${escapeHtml(selected.title)}` : "No activity selected yet."}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" type="button" data-randomize-night="${n.id}" ${!n.randomizerUnlocked || n.randomizerUsedAt ? "disabled" : ""}>Randomizer</button></div></li>`;
+  }).join("") || "<li class='muted'>No nights set for this week.</li>";
+}
+
 function updateChoreNote() {
   const m = findMember(state.selectedPersonId);
   el.choreGenNote.textContent = m ? `Generate chores for ${m.name}.` : "Select a person tab to generate chores.";
@@ -947,6 +1324,16 @@ async function requestMealPlan(payload) {
     body: JSON.stringify(payload),
   });
   if (!r.ok) throw new Error("Meal plan request failed");
+  return r.json();
+}
+
+async function requestChoreSchedule(payload) {
+  const r = await fetch("/api/chore-schedule", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error("Chore schedule request failed");
   return r.json();
 }
 
@@ -1134,6 +1521,93 @@ async function shareRecipeToNotes(recipe, fallbackDetails) {
   }
 }
 
+function applyAssignments(assignments, weekStart) {
+  const keep = state.game.assignments.filter((a) => !inWeek(a.scheduledDate, weekStart));
+  state.game.assignments = keep.concat(assignments);
+}
+
+function assignmentFromAiRow(row, weekStart) {
+  const byId = findMember(row.userId || "");
+  const byName = findMemberByName(row.userName || row.user || "");
+  const user = byId || byName;
+  if (!user) return null;
+  const scheduledDate = String(row.scheduledDate || "");
+  if (!scheduledDate || !inWeek(scheduledDate, weekStart)) return null;
+  const difficulty = Math.max(1, Math.min(3, Number(row.difficulty) || 1));
+  const points = Number(state.game.settings.scoreByDifficulty[difficulty]) || difficulty;
+  return {
+    id: uid(),
+    choreId: row.choreId || `ai-${String(row.choreTitle || row.title || "chore").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    choreTitle: row.choreTitle || row.title || "Chore",
+    userId: user.id,
+    userName: user.name,
+    scheduledDate,
+    status: "assigned",
+    completedAt: "",
+    pointsAwarded: points,
+    difficulty,
+    estimatedMinutes: Number(row.estimatedMinutes) || 20,
+    category: row.category || "general",
+    ageMin: Number(row.ageMin) || 0,
+  };
+}
+
+function finalizeWeekAndUnlockNights() {
+  const weekStart = state.game.scheduleWeekStart;
+  const board = computeLeaderboard(weekStart);
+  ensureNightsForWeek(weekStart);
+  for (const night of state.game.nights.filter((n) => inWeek(n.scheduledDate, weekStart))) {
+    night.winnerUserIds = board.winners.slice();
+    night.winnerUserId = board.winners[0] || "";
+    night.randomizerUnlocked = board.winners.length > 0;
+  }
+  return board;
+}
+
+async function runNightRandomizer(nightId) {
+  const night = state.game.nights.find((n) => n.id === nightId);
+  if (!night || !night.randomizerUnlocked || night.randomizerUsedAt) return;
+  let winnerUserId = night.winnerUserId;
+  const winners = Array.isArray(night.winnerUserIds) ? night.winnerUserIds : [];
+  if (winners.length > 1) {
+    winnerUserId = winners[Math.floor(Math.random() * winners.length)];
+    night.winnerUserId = winnerUserId;
+    const winnerName = findMember(winnerUserId)?.name || "Winner";
+    alert(`Tie resolved by coin flip. ${winnerName} can use the randomizer.`);
+  }
+  if (!winnerUserId) return;
+
+  const firstPick = randomActivityForType(night.type);
+  if (!firstPick) {
+    alert("No active activities configured for this night type.");
+    return;
+  }
+  let chosen = firstPick;
+  let rerolled = false;
+  let confirmUse = window.confirm(`Randomizer picked: ${chosen.title}. Confirm this activity?`);
+  if (!confirmUse && state.game.settings.allowReroll && !night.rerollUsed) {
+    const rerollNow = window.confirm("Use your one reroll?");
+    if (rerollNow) {
+      const secondPick = randomActivityForType(night.type);
+      if (secondPick) {
+        chosen = secondPick;
+        rerolled = true;
+        confirmUse = window.confirm(`Reroll picked: ${chosen.title}. Confirm this activity?`);
+      }
+    }
+  }
+  if (!confirmUse) return;
+
+  night.selectedActivityId = chosen.id;
+  night.randomizerUsedAt = new Date().toISOString();
+  if (rerolled) {
+    night.rerollUsed = true;
+    night.rerollLog.push({ at: night.randomizerUsedAt, activityId: chosen.id });
+  }
+  await saveState();
+  renderNights();
+}
+
 function selectedMemberFrom(select) {
   return findMember(select.value) || state.members[0] || null;
 }
@@ -1265,6 +1739,92 @@ document.getElementById("generateChoresBtn").addEventListener("click", async () 
   state.chores.unshift(...generatedChoresFor(member));
   await saveState();
   renderChores();
+});
+
+el.choreGameDate?.addEventListener("change", () => {
+  state.game.selectedDate = el.choreGameDate.value || state.game.scheduleWeekStart;
+  renderDailyAssignments();
+  saveState();
+});
+
+el.choreGameWeekStart?.addEventListener("change", async () => {
+  const value = el.choreGameWeekStart.value;
+  if (!value) return;
+  state.game.scheduleWeekStart = weekStartIso(value);
+  if (!state.game.selectedDate || !inWeek(state.game.selectedDate, state.game.scheduleWeekStart)) {
+    state.game.selectedDate = state.game.scheduleWeekStart;
+  }
+  ensureNightsForWeek(state.game.scheduleWeekStart);
+  await saveState();
+  renderChoreGameControls();
+  renderDailyAssignments();
+  renderWeeklyLoad();
+  renderGameLeaderboard();
+  renderNights();
+});
+
+el.generateWeeklyChoreGameBtn?.addEventListener("click", async () => {
+  ensureGameDefaults();
+  const weekStart = state.game.scheduleWeekStart;
+  const dailyMax = Math.max(1, Math.min(6, Number(el.choreDailyMax?.value) || 2));
+
+  let assignments = [];
+  try {
+    const data = await requestChoreSchedule({
+      weekStart,
+      dailyMax,
+      members: state.members.map((m) => ({ id: m.id, name: m.name, age: m.age, role: m.role })),
+      chores: choreTemplates(),
+    });
+    const aiRows = Array.isArray(data.assignments) ? data.assignments : [];
+    assignments = aiRows.map((r) => assignmentFromAiRow(r, weekStart)).filter(Boolean);
+  } catch (_err) {
+    assignments = [];
+  }
+
+  if (!assignments.length) {
+    assignments = generateBalancedAssignments(weekStart, dailyMax);
+    alert("AI schedule unavailable. A balanced local schedule was generated.");
+  }
+
+  applyAssignments(assignments, weekStart);
+  ensureNightsForWeek(weekStart);
+  if (!state.game.selectedDate || !inWeek(state.game.selectedDate, weekStart)) {
+    state.game.selectedDate = weekStart;
+  }
+
+  await saveState();
+  renderChoreGameControls();
+  renderDailyAssignments();
+  renderWeeklyLoad();
+  renderGameLeaderboard();
+  renderNights();
+});
+
+el.finalizeWeekBtn?.addEventListener("click", async () => {
+  ensureGameDefaults();
+  const board = finalizeWeekAndUnlockNights();
+  await saveState();
+  renderGameLeaderboard();
+  renderNights();
+  if (!board.winners.length) {
+    alert("No winner yet. Complete chores this week to unlock randomizer.");
+    return;
+  }
+  const names = board.winners.map((id) => findMember(id)?.name || "Winner").join(", ");
+  alert(`Weekly winner${board.winners.length > 1 ? "s" : ""}: ${names}. Randomizer unlocked.`);
+});
+
+el.saveGameSettingsBtn?.addEventListener("click", async () => {
+  state.game.settings.scoreByDifficulty = {
+    1: Math.max(1, Number(el.scoreDiff1?.value) || 1),
+    2: Math.max(1, Number(el.scoreDiff2?.value) || 2),
+    3: Math.max(1, Number(el.scoreDiff3?.value) || 3),
+  };
+  state.game.settings.allowReroll = !!el.allowReroll?.checked;
+  await saveState();
+  renderGameLeaderboard();
+  alert("Chore game settings saved.");
 });
 
 document.getElementById("plannerForm").addEventListener("submit", async (e) => {
@@ -1472,8 +2032,9 @@ el.memberList.addEventListener("click", async (e) => {
     const next = prompt("New name:", m.name);
     if (!next || !next.trim()) return;
     m.name = next.trim();
-    for (const set of [state.events, state.requests, state.chores]) {
+    for (const set of [state.events, state.requests, state.chores, state.game.assignments]) {
       for (const item of set) if (item.memberId === m.id) item.memberName = m.name;
+      for (const item of set) if (item.userId === m.id) item.userName = m.name;
     }
     await saveState();
     render();
@@ -1491,6 +2052,12 @@ el.memberList.addEventListener("click", async (e) => {
   state.events = state.events.filter((x) => x.memberId !== deleteId).map((x) => ({ ...x, involvedMemberIds: (x.involvedMemberIds || []).filter((id) => id !== deleteId) }));
   state.requests = state.requests.filter((x) => x.memberId !== deleteId);
   state.chores = state.chores.filter((x) => x.memberId !== deleteId);
+  state.game.assignments = state.game.assignments.filter((x) => x.userId !== deleteId);
+  state.game.nights = state.game.nights.map((n) => ({
+    ...n,
+    winnerUserIds: (n.winnerUserIds || []).filter((id) => id !== deleteId),
+    winnerUserId: n.winnerUserId === deleteId ? "" : n.winnerUserId,
+  }));
   if (state.selectedPersonId === deleteId) state.selectedPersonId = "family";
 
   await saveState();
@@ -1514,6 +2081,34 @@ el.choreList.addEventListener("change", async (e) => {
   await saveState();
   renderChores();
   if (state.view === "day") renderCalendar();
+});
+
+el.dailyAssignmentsList?.addEventListener("click", async (e) => {
+  const completeId = e.target.closest("[data-complete-assignment]")?.dataset.completeAssignment;
+  const skipId = e.target.closest("[data-skip-assignment]")?.dataset.skipAssignment;
+  const id = completeId || skipId;
+  if (!id) return;
+  const row = state.game.assignments.find((a) => a.id === id);
+  if (!row) return;
+
+  if (completeId) {
+    if (row.status === "completed") return;
+    row.status = "completed";
+    row.completedAt = new Date().toISOString();
+  } else {
+    row.status = "skipped";
+    row.completedAt = "";
+  }
+
+  await saveState();
+  renderDailyAssignments();
+  renderGameLeaderboard();
+});
+
+el.nightsList?.addEventListener("click", async (e) => {
+  const nightId = e.target.closest("[data-randomize-night]")?.dataset.randomizeNight;
+  if (!nightId) return;
+  await runNightRandomizer(nightId);
 });
 
 el.plannerIdeas.addEventListener("click", async (e) => {
@@ -1658,6 +2253,7 @@ document.getElementById("shareBtn").addEventListener("click", async () => {
 el.viewBtns.forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
 
 function render() {
+  ensureGameDefaults();
   setMainTab(state.activeTab, false);
   renderPersonTabs();
   renderChoresPersonTabs();
@@ -1671,6 +2267,11 @@ function render() {
   renderMemberList();
   renderPersonEvents();
   renderChores();
+  renderChoreGameControls();
+  renderDailyAssignments();
+  renderWeeklyLoad();
+  renderGameLeaderboard();
+  renderNights();
   updateChoreNote();
   updateEventFormMode();
   setPlannerInputs();
