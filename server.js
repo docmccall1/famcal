@@ -56,9 +56,13 @@ function serveFile(reqPath, res) {
       res.end("Not found");
       return;
     }
+    const ext = path.extname(filePath).toLowerCase();
+    const cacheControl = ext === ".html"
+      ? "no-cache"
+      : "public, max-age=3600, stale-while-revalidate=86400";
     res.writeHead(200, {
       "Content-Type": contentType(filePath),
-      "Cache-Control": "no-cache",
+      "Cache-Control": cacheControl,
     });
     res.end(data);
   });
@@ -404,6 +408,75 @@ async function handleChoreSchedule(req, res) {
   }
 }
 
+async function handleChoreCatalog(req, res) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    sendJson(res, 500, { error: "OPENAI_API_KEY is not configured" });
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (_err) {
+    bad(res, "Invalid JSON");
+    return;
+  }
+
+  const members = Array.isArray(payload.members) ? payload.members : [];
+  if (!members.length) {
+    bad(res, "members are required");
+    return;
+  }
+
+  const systemPrompt = [
+    "Create a practical household master chore catalog.",
+    "Use member ages/roles to keep chores age-appropriate.",
+    "Include chores for kids and adults.",
+    "Avoid duplicate or near-duplicate chore titles.",
+    "Use short action-oriented titles.",
+    "",
+    "Output strict JSON only in this format:",
+    "{\"chores\":[{\"title\":\"string\",\"frequency\":\"Daily|Weekly|Monthly\",\"difficulty\":1,\"estimatedMinutes\":15,\"ageMin\":6,\"category\":\"string\"}]}",
+    "Return 18 to 35 chores total.",
+  ].join("\n");
+
+  const userPrompt = `Members: ${JSON.stringify(members)}`;
+
+  try {
+    const openaiRes = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+        input: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+    });
+
+    if (!openaiRes.ok) {
+      const errText = await openaiRes.text();
+      sendJson(res, 500, { error: `OpenAI request failed: ${errText}` });
+      return;
+    }
+
+    const apiData = await openaiRes.json();
+    const text = firstTextFromResponse(apiData).trim();
+    const jsonStart = text.indexOf("{");
+    const jsonText = jsonStart >= 0 ? text.slice(jsonStart) : text;
+    const parsed = JSON.parse(jsonText || "{}");
+    const chores = Array.isArray(parsed.chores) ? parsed.chores : [];
+    sendJson(res, 200, { chores });
+  } catch (err) {
+    sendJson(res, 500, { error: `Could not generate chore catalog: ${err.message}` });
+  }
+}
+
 async function handleState(req, res, url) {
   const room = url.searchParams.get("room");
   if (!validRoom(room)) {
@@ -477,6 +550,11 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === "/api/chore-schedule" && req.method === "POST") {
     await handleChoreSchedule(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/chore-catalog" && req.method === "POST") {
+    await handleChoreCatalog(req, res);
     return;
   }
 

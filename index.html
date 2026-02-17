@@ -23,7 +23,8 @@
     </header>
 
     <nav class="tabbar card" id="mainTabs">
-      <button class="tab-btn active" data-tab="calendar">Calendar</button>
+      <button class="tab-btn active" data-tab="home">Home</button>
+      <button class="tab-btn" data-tab="calendar">Calendar</button>
       <button class="tab-btn" data-tab="requests">Requests</button>
       <button class="tab-btn" data-tab="chorelist">Chores</button>
       <button class="tab-btn" data-tab="planner">Date Planner</button>
@@ -37,7 +38,48 @@
       <p class="hint">Use Family to view everything, or a person tab for individual activities and chores.</p>
     </section>
 
-    <main id="calendarPage" class="layout page active">
+    <main id="homePage" class="page active">
+      <section class="layout home-layout">
+        <section class="card home-hero">
+          <p class="eyebrow">Family Command Center</p>
+          <h2 id="homeHeroTitle">Everything in one place</h2>
+          <p id="homeHeroSub" class="hint">Today’s priorities, meals, chores, and key dates at a glance.</p>
+          <div class="row-actions">
+            <button class="btn btn-primary" data-home-tab="calendar" type="button">Open Calendar</button>
+            <button class="btn btn-secondary" data-home-tab="chorelist" type="button">Open Chores</button>
+            <button class="btn btn-secondary" data-home-tab="meal" type="button">Plan Meals</button>
+            <button class="btn btn-secondary" data-home-tab="planner" type="button">Plan Date Night</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>Today Snapshot</h3>
+          <ul id="homeTodayList" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <h3>Kids Important Dates</h3>
+          <ul id="homeImportantList" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <h3>Chores Progress</h3>
+          <ul id="homeChoreList" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <h3>Meal Plan Snapshot</h3>
+          <ul id="homeMealList" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <h3>Date Night Suggestions</h3>
+          <ul id="homeDateIdeasList" class="list"></ul>
+        </section>
+      </section>
+    </main>
+
+    <main id="calendarPage" class="layout page">
       <section class="calendar-panel card">
         <div class="calendar-controls">
           <div class="date-nav">
@@ -98,6 +140,10 @@
                 <option value="weekly">Weekly</option>
                 <option value="monthly">Monthly</option>
               </select>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" id="eventImportant" />
+              <span>Important date</span>
             </label>
             <div class="row-actions">
               <button id="eventSubmitBtn" class="btn btn-primary" type="submit">Add Event</button>
@@ -347,6 +393,10 @@
 
         <section class="card">
           <h2>Master Chore Catalog</h2>
+          <div class="row-actions">
+            <button id="aiGenerateCatalogBtn" class="btn btn-secondary" type="button">AI Generate Catalog</button>
+            <button id="clearAllChoresBtn" class="btn btn-secondary" type="button">Clear All Chores</button>
+          </div>
           <form id="choreCatalogForm" class="stack">
             <div class="inline-form">
               <input type="text" id="choreTitleInput" placeholder="Chore title" required />

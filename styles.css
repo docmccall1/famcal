@@ -107,6 +107,15 @@ h1, h2, h3, h4, legend {
   gap: 1rem;
 }
 
+.home-layout {
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+}
+
+.home-hero {
+  grid-column: 1 / -1;
+  background: linear-gradient(130deg, #ffffff 0%, #eef6ff 50%, #f5fffb 100%);
+}
+
 .requests-layout,
 .chores-layout,
 .planner-layout {
@@ -706,6 +715,17 @@ fieldset {
   white-space: nowrap;
 }
 
+.priority-pill {
+  background: #fff2d9;
+  color: #8a4b00;
+  border: 1px solid #efd7ad;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.1rem 0.5rem;
+  white-space: nowrap;
+}
+
 .event-item { border-left: 3px solid var(--member-color); }
 .event-meta {
   font-size: 0.78rem;
@@ -797,6 +817,10 @@ hr {
   .requests-layout,
   .chores-layout,
   .planner-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .home-layout {
     grid-template-columns: 1fr;
   }
 

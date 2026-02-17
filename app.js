@@ -1,7 +1,7 @@
 const state = {
   currentDate: new Date(),
   view: "month",
-  activeTab: "calendar",
+  activeTab: "home",
   selectedPersonId: "family",
   roomId: "",
   lastUpdatedAt: 0,
@@ -66,6 +66,7 @@ const el = {
   mainTabs: document.querySelectorAll("#mainTabs .tab-btn"),
   personTabs: document.getElementById("personTabs"),
   choresPersonTabs: document.getElementById("choresPersonTabs"),
+  homePage: document.getElementById("homePage"),
   calendarPage: document.getElementById("calendarPage"),
   requestsPage: document.getElementById("requestsPage"),
   choreListPage: document.getElementById("choreListPage"),
@@ -91,6 +92,8 @@ const el = {
   choreAgeMinInput: document.getElementById("choreAgeMinInput"),
   choreCategoryInput: document.getElementById("choreCategoryInput"),
   choreActiveInput: document.getElementById("choreActiveInput"),
+  aiGenerateCatalogBtn: document.getElementById("aiGenerateCatalogBtn"),
+  clearAllChoresBtn: document.getElementById("clearAllChoresBtn"),
   choresViews: document.getElementById("choresViews"),
   choresHero: document.getElementById("choresHero"),
   choresHeroTitle: document.getElementById("choresHeroTitle"),
@@ -122,6 +125,13 @@ const el = {
   mealRecipesList: document.getElementById("mealRecipesList"),
   mealNextDayList: document.getElementById("mealNextDayList"),
   mealPlanText: document.getElementById("mealPlanText"),
+  homeHeroTitle: document.getElementById("homeHeroTitle"),
+  homeHeroSub: document.getElementById("homeHeroSub"),
+  homeTodayList: document.getElementById("homeTodayList"),
+  homeImportantList: document.getElementById("homeImportantList"),
+  homeChoreList: document.getElementById("homeChoreList"),
+  homeMealList: document.getElementById("homeMealList"),
+  homeDateIdeasList: document.getElementById("homeDateIdeasList"),
   plannerLocation: document.getElementById("plannerLocation"),
   plannerPrefs: document.getElementById("plannerPrefs"),
   partnerEmail: document.getElementById("partnerEmail"),
@@ -140,6 +150,7 @@ const el = {
   eventStart: document.getElementById("eventStart"),
   eventEnd: document.getElementById("eventEnd"),
   eventRecurring: document.getElementById("eventRecurring"),
+  eventImportant: document.getElementById("eventImportant"),
   eventSubmitBtn: document.getElementById("eventSubmitBtn"),
   eventCancelBtn: document.getElementById("eventCancelBtn"),
   choreGameWeekStart: document.getElementById("choreGameWeekStart"),
@@ -229,6 +240,7 @@ function normalizeEvent(ev) {
     importSourceName: ev.importSourceName || "",
     importedAt: Number(ev.importedAt) || 0,
     recurring: ev.recurring || "none",
+    important: !!ev.important,
   };
 }
 
@@ -335,9 +347,9 @@ function normalizePayload(p) {
     requests: (Array.isArray(p.requests) ? p.requests : []).map(normalizeRequest),
     chores: (Array.isArray(p.chores) ? p.chores : []).map(normalizeChore),
     selectedPersonId: typeof p.selectedPersonId === "string" ? p.selectedPersonId : "family",
-    activeTab: ["calendar", "requests", "chorelist", "planner", "meal", "settings"].includes(p.activeTab)
+    activeTab: ["home", "calendar", "requests", "chorelist", "planner", "meal", "settings"].includes(p.activeTab)
       ? p.activeTab
-      : ((p.activeTab === "chores" || p.activeTab === "choregame") ? "chorelist" : "calendar"),
+      : ((p.activeTab === "chores" || p.activeTab === "choregame") ? "chorelist" : "home"),
     planner: {
       location: p.planner?.location || "",
       prefs: p.planner?.prefs || "",
@@ -449,8 +461,15 @@ async function mergeRemoteIfNewer() {
 function startPolling() {
   if (!state.roomId) return;
   if (syncTimer) clearInterval(syncTimer);
-  syncTimer = setInterval(() => mergeRemoteIfNewer(), 5000);
+  syncTimer = setInterval(() => {
+    if (document.hidden) return;
+    mergeRemoteIfNewer();
+  }, 9000);
 }
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) mergeRemoteIfNewer();
+});
 
 async function loadState() {
   const url = new URL(window.location.href);
@@ -554,6 +573,7 @@ function visibleChores() { return state.chores.filter(matchesSelected); }
 function setMainTab(tab, save = true) {
   state.activeTab = tab;
   el.mainTabs.forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  el.homePage?.classList.toggle("active", tab === "home");
   el.calendarPage?.classList.toggle("active", tab === "calendar");
   el.requestsPage?.classList.toggle("active", tab === "requests");
   el.choreListPage?.classList.toggle("active", tab === "chorelist");
@@ -561,6 +581,7 @@ function setMainTab(tab, save = true) {
   el.plannerPage?.classList.toggle("active", tab === "planner");
   el.mealPage?.classList.toggle("active", tab === "meal");
   el.settingsPage?.classList.toggle("active", tab === "settings");
+  if (tab === "home") renderHomeDashboard();
   window.scrollTo({ top: 0, behavior: "smooth" });
   if (save) saveState();
 }
@@ -631,6 +652,7 @@ function resetEventEditor(form = el.eventForm) {
   state.editingEventInvolvedIds = [];
   if (form) form.reset();
   if (el.eventTimeRow) el.eventTimeRow.classList.remove("hidden");
+  if (el.eventImportant) el.eventImportant.checked = false;
   renderInvolvedChecklist();
   populateMemberSelects();
   updateEventFormMode();
@@ -653,6 +675,7 @@ function startEventEdit(eventId) {
   if (el.eventStart) el.eventStart.value = ev.start || "";
   if (el.eventEnd) el.eventEnd.value = ev.end || "";
   if (el.eventRecurring) el.eventRecurring.value = ev.recurring || "none";
+  if (el.eventImportant) el.eventImportant.checked = !!ev.important;
   if (el.eventMember) el.eventMember.value = ev.memberId || state.members[0]?.id || "";
 
   if (el.eventTimeRow) el.eventTimeRow.classList.toggle("hidden", !!ev.allDay);
@@ -670,6 +693,7 @@ async function removeEvent(eventId) {
   renderRecurring();
   renderPersonEvents();
   renderRequestEventsList();
+  renderHomeDashboard();
 }
 
 function populateMemberSelects() {
@@ -882,17 +906,27 @@ function ensureExactDailyQuota(assignments, weekStart, dailyPerPerson = 5) {
   const days = weekDatesFrom(weekStart);
   const rows = assignments.slice();
   const countMap = new Map();
+  const titleMap = new Map();
   for (const row of rows) {
     const key = `${row.userId}|${row.scheduledDate}`;
     countMap.set(key, (countMap.get(key) || 0) + 1);
+    const tset = titleMap.get(key) || new Set();
+    tset.add(titleKey(row.choreTitle));
+    titleMap.set(key, tset);
   }
 
   for (const member of state.members) {
     for (const day of days) {
       const key = `${member.id}|${day}`;
       let count = countMap.get(key) || 0;
-      while (count < dailyPerPerson) {
-        const fallback = fallbackTemplatesForMember(member)[count % fallbackTemplatesForMember(member).length];
+      let guard = 0;
+      while (count < dailyPerPerson && guard < 60) {
+        guard += 1;
+        const templates = fallbackTemplatesForMember(member);
+        const usedTitles = titleMap.get(key) || new Set();
+        let fallback = templates.find((t) => !usedTitles.has(titleKey(t.title)));
+        if (!fallback) fallback = templates[count % templates.length];
+        if (usedTitles.has(titleKey(fallback.title))) break;
         const points = Number(state.game.settings.scoreByDifficulty[fallback.difficulty]) || fallback.difficulty;
         rows.push({
           id: uid(),
@@ -911,6 +945,8 @@ function ensureExactDailyQuota(assignments, weekStart, dailyPerPerson = 5) {
         });
         count += 1;
         countMap.set(key, count);
+        usedTitles.add(titleKey(fallback.title));
+        titleMap.set(key, usedTitles);
       }
     }
   }
@@ -1053,6 +1089,26 @@ function enforceDailyAssignmentCap(rows, maxPerDayPerPerson = 5) {
   return out;
 }
 
+function titleKey(title) {
+  return String(title || "").trim().toLowerCase();
+}
+
+function enforceNoDuplicateDailyChores(rows) {
+  const seen = new Map();
+  const out = [];
+  const sorted = rows.slice().sort((a, b) => `${a.scheduledDate}${a.userId}${a.choreTitle}`.localeCompare(`${b.scheduledDate}${b.userId}${b.choreTitle}`));
+  for (const row of sorted) {
+    const dayKey = `${row.userId}|${row.scheduledDate}`;
+    const set = seen.get(dayKey) || new Set();
+    const key = titleKey(row.choreTitle);
+    if (!key || set.has(key)) continue;
+    set.add(key);
+    seen.set(dayKey, set);
+    out.push(row);
+  }
+  return out;
+}
+
 function computeLeaderboard(weekStart) {
   const sunday = addDaysIso(weekStart, 6);
   const base = new Map(state.members.map((m) => [m.id, {
@@ -1169,6 +1225,7 @@ function dateCell(date, includeDayChores = false) {
     const owner = displayMember(ev);
     const involved = eventInvolvedNames(ev);
     const involvedText = involved.length ? `<div class="event-meta">Involved: ${escapeHtml(involved.join(", "))}</div>` : "";
+    const important = ev.important ? `<span class="priority-pill">Important</span>` : "";
     return `
       <li class="event-item" style="--member-color: ${memberColor(owner)}">
         <div>
@@ -1177,6 +1234,7 @@ function dateCell(date, includeDayChores = false) {
           ${involvedText}
         </div>
         <div class="event-right">
+          ${important}
           <span class="member-pill" style="--member-color: ${memberColor(owner)}">${escapeHtml(owner)}</span>
           ${eventActionButtons(ev.id)}
         </div>
@@ -1229,7 +1287,8 @@ function renderCalendar() {
         const involved = eventInvolvedNames(ev);
         const involvedText = involved.length ? ` | Involved: ${escapeHtml(involved.join(", "))}` : "";
         const timeText = ev.allDay ? "All Day" : (ev.start ? `${escapeHtml(ev.start)}-${escapeHtml(ev.end || "")}` : "Time TBD");
-        return `<li class="event-item" style="--member-color:${memberColor(owner)}"><div><strong>${day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} | ${timeText} | ${escapeHtml(ev.title)}</strong><div class="event-meta">${escapeHtml(owner)}${involvedText}</div></div>${eventActionButtons(ev.id)}</li>`;
+        const important = ev.important ? `<span class="priority-pill">Important</span>` : "";
+        return `<li class="event-item" style="--member-color:${memberColor(owner)}"><div><strong>${day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} | ${timeText} | ${escapeHtml(ev.title)}</strong><div class="event-meta">${escapeHtml(owner)}${involvedText}</div></div><div class="event-right">${important}${eventActionButtons(ev.id)}</div></li>`;
       }).join("")}</ul></article>`
       : `<article class="cell"><h4>Weekly Events</h4><ul><li class='muted'>No events this week.</li></ul></article>`;
     renderCalendarAssignedChores();
@@ -1289,6 +1348,7 @@ async function approveRequest(requestId) {
   const startDate = req.requestedDate || formatDate(new Date());
   const startTime = req.requestedTime || "";
   const evId = req.approvedEventId || uid();
+  const importantGuess = /\b(important|doctor|school|exam|birthday|conference|appointment)\b/i.test(String(req.text || ""));
   const exists = state.events.some((ev) => ev.id === evId);
   if (!exists) {
     state.events.push({
@@ -1303,6 +1363,7 @@ async function approveRequest(requestId) {
       memberName: owner.name,
       involvedMemberIds: [owner.id],
       recurring: "none",
+      important: importantGuess,
     });
   }
   req.status = "approved";
@@ -1345,7 +1406,7 @@ function renderRequestEventsList() {
   el.requestEventsList.innerHTML = upcoming.map((ev) => {
     const who = displayMember(ev);
     const timeText = ev.allDay ? "All Day" : (ev.start ? `${ev.start}${ev.end ? `-${ev.end}` : ""}` : "Time TBD");
-    return `<li><div class="list-content"><strong>${escapeHtml(ev.title)}</strong><small>${escapeHtml(ev.startDate)} ${escapeHtml(timeText)}</small></div><div class="event-right"><span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span>${eventActionButtons(ev.id)}</div></li>`;
+    return `<li><div class="list-content"><strong>${escapeHtml(ev.title)}</strong><small>${escapeHtml(ev.startDate)} ${escapeHtml(timeText)}</small></div><div class="event-right">${ev.important ? "<span class='priority-pill'>Important</span>" : ""}<span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span>${eventActionButtons(ev.id)}</div></li>`;
   }).join("") || "<li class='muted'>No family events scheduled.</li>";
 }
 
@@ -1441,6 +1502,35 @@ function renderChoreCatalog() {
   }).join("") || "<li class='muted'>No master chores yet. Add one above.</li>";
 }
 
+function normalizeCatalogRows(items) {
+  const out = [];
+  const seen = new Set();
+  for (const item of Array.isArray(items) ? items : []) {
+    const title = String(item?.title || "").trim();
+    if (!title) continue;
+    const key = titleKey(title);
+    if (!isActionableChoreTitle(title) || seen.has(key)) continue;
+    seen.add(key);
+    const difficulty = Math.max(1, Math.min(3, Number(item?.difficulty) || 1));
+    out.push({
+      id: uid(),
+      title,
+      frequency: ["Daily", "Weekly", "Monthly"].includes(String(item?.frequency || "")) ? item.frequency : "Daily",
+      difficulty,
+      estimatedMinutes: Math.max(5, Math.min(120, Number(item?.estimatedMinutes) || (difficulty === 3 ? 40 : difficulty === 2 ? 25 : 15))),
+      ageMin: Math.max(5, Math.min(18, Number(item?.ageMin) || (difficulty === 1 ? 6 : difficulty === 2 ? 9 : 12))),
+      category: String(item?.category || "").trim() || "general",
+      active: true,
+      autoAssignMemberIds: [],
+      done: false,
+      autogenerated: true,
+      memberId: "",
+      memberName: "",
+    });
+  }
+  return out;
+}
+
 function renderPersonEvents() {
   if (!el.personEvents) return;
   const upcoming = visibleEvents()
@@ -1449,8 +1539,107 @@ function renderPersonEvents() {
     .slice(0, 12);
   el.personEvents.innerHTML = upcoming.map((ev) => {
     const who = displayMember(ev);
-    return `<li><div class="list-content"><strong>${escapeHtml(ev.title)}</strong><small>${escapeHtml(ev.startDate)}${ev.allDay ? " (All Day)" : (ev.start ? ` ${escapeHtml(ev.start)}` : "")}</small></div><span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span></li>`;
+    return `<li><div class="list-content"><strong>${escapeHtml(ev.title)}</strong><small>${escapeHtml(ev.startDate)}${ev.allDay ? " (All Day)" : (ev.start ? ` ${escapeHtml(ev.start)}` : "")}</small></div><div class="event-right">${ev.important ? "<span class='priority-pill'>Important</span>" : ""}<span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span></div></li>`;
   }).join("") || "<li class='muted'>No upcoming activities for this view.</li>";
+}
+
+function isAdult(member) {
+  return member?.role === "adult";
+}
+
+function isChild(member) {
+  return member?.role === "child";
+}
+
+function homeUpcomingEvents(daysAhead = 21) {
+  const today = formatDate(new Date());
+  const end = addDaysIso(today, daysAhead);
+  return state.events
+    .filter((ev) => ev.startDate && ev.startDate >= today && ev.startDate <= end)
+    .sort((a, b) => `${a.startDate}${a.start || ""}`.localeCompare(`${b.startDate}${b.start || ""}`));
+}
+
+function renderHomeDashboard() {
+  if (!el.homePage) return;
+  const todayIso = formatDate(new Date());
+  const todayEvents = state.events
+    .filter((ev) => ev.startDate && ev.startDate <= todayIso && (ev.endDate || ev.startDate) >= todayIso)
+    .sort((a, b) => `${a.startDate}${a.start || ""}`.localeCompare(`${b.startDate}${b.start || ""}`));
+  const todayAssignments = state.game.assignments.filter((a) => a.scheduledDate === todayIso);
+  const choresDone = todayAssignments.filter((a) => a.status === "completed" || a.status === "verified").length;
+  const nextUpcoming = homeUpcomingEvents(14)[0];
+
+  if (el.homeHeroTitle) {
+    el.homeHeroTitle.textContent = nextUpcoming
+      ? `Next up: ${nextUpcoming.title} on ${nextUpcoming.startDate}`
+      : "Everything is clear right now";
+  }
+  if (el.homeHeroSub) {
+    el.homeHeroSub.textContent = `${todayEvents.length} events today · ${choresDone}/${todayAssignments.length} chores done`;
+  }
+
+  if (el.homeTodayList) {
+    const rows = [];
+    for (const ev of todayEvents.slice(0, 8)) {
+      const owner = displayMember(ev);
+      rows.push(`<li><div class="list-content"><strong>${escapeHtml(ev.title)}</strong><small>${escapeHtml(ev.startDate)} ${ev.allDay ? "All Day" : escapeHtml(ev.start || "")}</small></div><div class="event-right">${ev.important ? "<span class='priority-pill'>Important</span>" : ""}<span class="member-pill" style="--member-color:${memberColor(owner)}">${escapeHtml(owner)}</span></div></li>`);
+    }
+    for (const a of todayAssignments.slice(0, 8 - rows.length)) {
+      const who = findMember(a.userId)?.name || a.userName || "Unknown";
+      rows.push(`<li><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>Chore · ${escapeHtml(who)} · ${a.status}</small></div></li>`);
+    }
+    el.homeTodayList.innerHTML = rows.join("") || "<li class='muted'>No events or chores today.</li>";
+  }
+
+  if (el.homeImportantList) {
+    const upcoming = homeUpcomingEvents(30).filter((ev) => {
+      const owner = findMember(ev.memberId);
+      return ev.important || isChild(owner);
+    });
+    el.homeImportantList.innerHTML = upcoming.slice(0, 12).map((ev) => {
+      const owner = displayMember(ev);
+      return `<li><div class="list-content"><strong>${escapeHtml(ev.title)}</strong><small>${escapeHtml(ev.startDate)}${ev.start ? ` · ${escapeHtml(ev.start)}` : ""}</small></div><div class="event-right"><span class='priority-pill'>${ev.important ? "Important" : "Kid event"}</span><span class="member-pill" style="--member-color:${memberColor(owner)}">${escapeHtml(owner)}</span></div></li>`;
+    }).join("") || "<li class='muted'>No important kid dates in the next 30 days.</li>";
+  }
+
+  if (el.homeChoreList) {
+    const byPerson = state.members.map((m) => {
+      const rows = todayAssignments.filter((a) => a.userId === m.id);
+      const done = rows.filter((a) => a.status === "completed" || a.status === "verified").length;
+      return { member: m, done, total: rows.length };
+    }).filter((x) => x.total > 0);
+    el.homeChoreList.innerHTML = byPerson.map(({ member, done, total }) => {
+      const pct = total ? Math.round((done / total) * 100) : 0;
+      return `<li><div class="list-content"><strong>${escapeHtml(member.name)}</strong><small>${done}/${total} chores complete</small></div><small class="muted">${pct}%</small></li>`;
+    }).join("") || "<li class='muted'>No chores assigned today.</li>";
+  }
+
+  if (el.homeMealList) {
+    const meal = state.planner.meal || {};
+    const mealDay = meal.day || "Not set";
+    const deals = Array.isArray(meal.deals) ? meal.deals.length : 0;
+    const recipes = Array.isArray(meal.recipes) ? meal.recipes.length : 0;
+    el.homeMealList.innerHTML = `
+      <li><div class="list-content"><strong>${escapeHtml(mealDay)}</strong><small>Mode: ${escapeHtml(meal.mode || "EITHER")} · Budget: $${Number(meal.budget || 0)}</small></div></li>
+      <li><div class="list-content"><strong>${deals} local deal option${deals === 1 ? "" : "s"}</strong><small>${recipes} at-home recipe option${recipes === 1 ? "" : "s"}</small></div></li>
+      <li><button class="btn btn-secondary btn-sm" data-home-tab="meal" type="button">Open Meal Planner</button></li>
+    `;
+  }
+
+  if (el.homeDateIdeasList) {
+    const ideas = Array.isArray(state.planner.ideas) ? state.planner.ideas : [];
+    const adults = state.members.filter(isAdult).map((m) => m.name).join(" & ") || "Adults";
+    el.homeDateIdeasList.innerHTML = ideas.slice(0, 4).map((idea, idx) => `
+      <li>
+        <div class="list-content">
+          <strong>${escapeHtml(idea.title || "Date idea")}</strong>
+          <small>${escapeHtml(idea.date || "")} ${escapeHtml(idea.start_time || "")}-${escapeHtml(idea.end_time || "")}</small>
+          <small>${escapeHtml(idea.place || "")}</small>
+        </div>
+        <button class="btn btn-secondary btn-sm" data-choose-idea="${idx}">Choose</button>
+      </li>
+    `).join("") || `<li class='muted'>No date ideas yet for ${escapeHtml(adults)}.</li>`;
+  }
 }
 
 function renderChores() {
@@ -1902,21 +2091,25 @@ async function generateWeeklyChoreSchedule() {
       chores: choreTemplates(),
     });
     const aiRows = Array.isArray(data.assignments) ? data.assignments : [];
-    assignments = enforceDailyAssignmentCap(aiRows.map((r) => assignmentFromAiRow(r, weekStart)).filter(Boolean), dailyMax);
+    assignments = enforceNoDuplicateDailyChores(
+      enforceDailyAssignmentCap(aiRows.map((r) => assignmentFromAiRow(r, weekStart)).filter(Boolean), dailyMax),
+    );
   } catch (err) {
     assignments = [];
     aiWarning = err?.message ? String(err.message) : "AI request failed";
   }
 
   if (!assignments.length) {
-    assignments = enforceDailyAssignmentCap(generateBalancedAssignments(weekStart, dailyMax, targetPerPerson), dailyMax);
+    assignments = enforceNoDuplicateDailyChores(
+      enforceDailyAssignmentCap(generateBalancedAssignments(weekStart, dailyMax, targetPerPerson), dailyMax),
+    );
     source = "Balanced local planner";
   } else if (!hasExactDailyQuota(assignments, weekStart, dailyMax)) {
     source = "AI + auto-balance";
   }
 
   assignments = assignments.filter((a) => isActionableChoreTitle(a.choreTitle));
-  assignments = ensureExactDailyQuota(assignments, weekStart, dailyMax);
+  assignments = enforceNoDuplicateDailyChores(ensureExactDailyQuota(assignments, weekStart, dailyMax));
 
   applyAssignments(assignments, weekStart);
   state.game.scheduleWeekStart = weekStart;
@@ -1940,6 +2133,7 @@ async function generateWeeklyChoreSchedule() {
     btn.textContent = prevLabel || "Generate Weekly Schedule";
   }
   el.choresTodayPanel?.classList.remove("chores-loading");
+  renderHomeDashboard();
 }
 
 function updateChoreNote() {
@@ -2116,6 +2310,23 @@ async function requestChoreSchedule(payload) {
   });
   if (!r.ok) {
     let msg = "Chore schedule request failed";
+    try {
+      const err = await r.json();
+      if (err?.error) msg = String(err.error);
+    } catch (_err) {}
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+async function requestChoreCatalog(payload) {
+  const r = await fetch("/api/chore-catalog", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) {
+    let msg = "Chore catalog request failed";
     try {
       const err = await r.json();
       if (err?.error) msg = String(err.error);
@@ -2413,6 +2624,7 @@ async function applyChoreAction(action, assignmentId, anchorEl) {
   renderChores();
   renderCalendarAssignedChores();
   renderCalendar();
+  renderHomeDashboard();
   if (action === "complete") celebrateCompletion(anchorEl);
 
   try {
@@ -2423,6 +2635,7 @@ async function applyChoreAction(action, assignmentId, anchorEl) {
     renderChores();
     renderCalendarAssignedChores();
     renderCalendar();
+    renderHomeDashboard();
     showToast("Could not save. Try again.");
   }
 }
@@ -2545,6 +2758,7 @@ document.getElementById("eventForm").addEventListener("submit", async (e) => {
     memberName: owner.name,
     involvedMemberIds: Array.from(new Set(involved.concat(owner.id))),
     recurring: el.eventRecurring.value,
+    important: !!el.eventImportant?.checked,
   };
 
   if (state.editingEventId) {
@@ -2569,6 +2783,7 @@ document.getElementById("eventForm").addEventListener("submit", async (e) => {
   renderRecurring();
   renderPersonEvents();
   renderRequestEventsList();
+  renderHomeDashboard();
 });
 
 el.eventCancelBtn?.addEventListener("click", () => {
@@ -2746,6 +2961,7 @@ document.getElementById("plannerForm").addEventListener("submit", async (e) => {
 
   await saveState();
   renderPlannerIdeas();
+  renderHomeDashboard();
 });
 
 document.getElementById("mealPlannerForm")?.addEventListener("submit", async (e) => {
@@ -2809,6 +3025,7 @@ document.getElementById("mealPlannerForm")?.addEventListener("submit", async (e)
 
   await saveState();
   renderMealSuggestions();
+  renderHomeDashboard();
 });
 
 document.getElementById("icalForm").addEventListener("submit", async (e) => {
@@ -3032,6 +3249,49 @@ el.choreCatalogList?.addEventListener("click", async (e) => {
   renderChoreCatalog();
 });
 
+el.clearAllChoresBtn?.addEventListener("click", async () => {
+  if (!window.confirm("Clear all master chores and generated assignments?")) return;
+  state.chores = [];
+  state.game.assignments = [];
+  await saveState();
+  renderChoreCatalog();
+  renderChores();
+  renderCalendar();
+  renderCalendarAssignedChores();
+  showToast("All chores cleared.");
+});
+
+el.aiGenerateCatalogBtn?.addEventListener("click", async () => {
+  const btn = el.aiGenerateCatalogBtn;
+  const prev = btn?.textContent || "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Generating...";
+  }
+  try {
+    const data = await requestChoreCatalog({
+      members: state.members.map((m) => ({ id: m.id, name: m.name, age: m.age, role: m.role })),
+    });
+    const generated = normalizeCatalogRows(data?.chores);
+    if (!generated.length) throw new Error("AI returned no chores");
+    state.chores = generated;
+    state.game.assignments = [];
+    await saveState();
+    renderChoreCatalog();
+    renderChores();
+    renderCalendarAssignedChores();
+    if (el.choreGenNote) el.choreGenNote.textContent = `AI created ${generated.length} master chores. Enable/disable and assign members in Settings.`;
+    showToast("AI master catalog created.");
+  } catch (err) {
+    showToast(`AI catalog failed: ${String(err?.message || "unknown error")}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = prev || "AI Generate Catalog";
+    }
+  }
+});
+
 const handleChorePanelClick = async (e) => {
   const button = e.target.closest("[data-chore-action]");
   if (!button) return;
@@ -3144,9 +3404,7 @@ el.nightsList?.addEventListener("click", async (e) => {
   await runNightRandomizer(nightId);
 });
 
-el.plannerIdeas.addEventListener("click", async (e) => {
-  const idx = e.target.dataset.chooseIdea;
-  if (idx === undefined) return;
+async function chooseDateIdeaByIndex(idx) {
   const idea = state.planner.ideas[Number(idx)];
   if (!idea) return;
 
@@ -3165,17 +3423,31 @@ el.plannerIdeas.addEventListener("click", async (e) => {
     memberName: owner.name,
     involvedMemberIds: state.members.filter((m) => m.role === "adult").map((m) => m.id),
     recurring: "none",
+    important: true,
   });
 
   await saveState();
   renderCalendar();
   renderPersonEvents();
   renderRequestEventsList();
+  renderHomeDashboard();
   alert("Date added to calendar.");
 
   if (state.planner.partnerEmail) {
     alert("Date added to calendar. Email sending is currently disabled.");
   }
+}
+
+el.plannerIdeas.addEventListener("click", async (e) => {
+  const idx = e.target.dataset.chooseIdea;
+  if (idx === undefined) return;
+  await chooseDateIdeaByIndex(idx);
+});
+
+el.homeDateIdeasList?.addEventListener("click", async (e) => {
+  const idx = e.target.closest("[data-choose-idea]")?.dataset.chooseIdea;
+  if (idx === undefined) return;
+  await chooseDateIdeaByIndex(idx);
 });
 
 el.requestEventsList?.addEventListener("click", async (e) => {
@@ -3257,11 +3529,18 @@ el.mainTabs.forEach((b) => {
   b.addEventListener("click", () => setMainTab(b.dataset.tab));
 });
 
+el.homePage?.addEventListener("click", (e) => {
+  const tab = e.target.closest("[data-home-tab]")?.dataset.homeTab;
+  if (!tab) return;
+  setMainTab(tab);
+});
+
 document.getElementById("planDateBtn")?.addEventListener("click", () => {});
 document.getElementById("prevBtn").addEventListener("click", () => shiftDate(-1));
 document.getElementById("nextBtn").addEventListener("click", () => shiftDate(1));
 document.getElementById("todayBtn").addEventListener("click", () => {
   state.currentDate = new Date();
+  if (state.activeTab !== "calendar") setMainTab("calendar", false);
   renderCalendar();
 });
 
@@ -3311,6 +3590,7 @@ function render() {
   setPlannerInputs();
   renderPlannerIdeas();
   renderMealSuggestions();
+  renderHomeDashboard();
 }
 
 (async () => {
