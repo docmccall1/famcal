@@ -163,19 +163,16 @@
           <div id="choresPersonTabs" class="person-tabs-vertical"></div>
         </section>
         <section class="card">
-          <h2>Chore List</h2>
-          <p class="hint">Choose a person tab at the top to view and manage only their chores.</p>
-          <form id="choreForm" class="inline-form">
-            <input type="text" id="choreInput" placeholder="Add chore" required />
-            <select id="choreFrequency">
-              <option value="Daily">Daily</option>
-              <option value="Weekly">Weekly</option>
-              <option value="Monthly">Monthly</option>
-            </select>
-            <button class="btn btn-secondary" type="submit">Add</button>
-          </form>
-          <button id="generateChoresBtn" class="btn btn-primary" type="button">AI Generate Weekly Chore Schedule</button>
-          <p id="choreGenNote" class="hint">Generates a balanced Monday-Sunday plan for everyone.</p>
+          <h2>Weekly Chore Schedule</h2>
+          <p class="hint">Generates a fresh weekly plan with 5 chores per day per person.</p>
+          <div class="inline-form">
+            <label>
+              Week start (Mon)
+              <input type="date" id="choreWeekStart" />
+            </label>
+          </div>
+          <button id="generateChoresBtn" class="btn btn-primary" type="button">Generate Weekly Schedule</button>
+          <p id="choreGenNote" class="hint">Use Family Views tabs to filter chores by person.</p>
           <ul id="choreList" class="list chore-plan-list"></ul>
         </section>
       </section>
