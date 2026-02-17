@@ -72,6 +72,7 @@ const el = {
   requestList: document.getElementById("requestList"),
   requestEventsList: document.getElementById("requestEventsList"),
   recurringList: document.getElementById("recurringList"),
+  calendarAssignedChores: document.getElementById("calendarAssignedChores"),
   mergedSourcesList: document.getElementById("mergedSourcesList"),
   oldMergedSource: document.getElementById("oldMergedSource"),
   oldMergedBefore: document.getElementById("oldMergedBefore"),
@@ -116,7 +117,6 @@ const el = {
   eventCancelBtn: document.getElementById("eventCancelBtn"),
   choreGameWeekStart: document.getElementById("choreGameWeekStart"),
   choreDailyMax: document.getElementById("choreDailyMax"),
-  generateWeeklyChoreGameBtn: document.getElementById("generateWeeklyChoreGameBtn"),
   finalizeWeekBtn: document.getElementById("finalizeWeekBtn"),
   choreGameDate: document.getElementById("choreGameDate"),
   dailyAssignmentsList: document.getElementById("dailyAssignmentsList"),
@@ -508,6 +508,7 @@ function setSelectedPerson(id, save = true) {
   renderChores();
   renderDailyAssignments();
   renderGameLeaderboard();
+  renderCalendarAssignedChores();
   updateChoreNote();
   if (save) saveState();
 }
@@ -945,6 +946,7 @@ function renderCalendar() {
     el.label.textContent = `${who} | ${d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}`;
     el.grid.className = "calendar-grid day";
     el.grid.innerHTML = dateCell(d, true);
+    renderCalendarAssignedChores();
     return;
   }
 
@@ -970,6 +972,7 @@ function renderCalendar() {
         return `<li class="event-item" style="--member-color:${memberColor(owner)}"><div><strong>${day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} | ${timeText} | ${escapeHtml(ev.title)}</strong><div class="event-meta">${escapeHtml(owner)}${involvedText}</div></div>${eventActionButtons(ev.id)}</li>`;
       }).join("")}</ul></article>`
       : `<article class="cell"><h4>Weekly Events</h4><ul><li class='muted'>No events this week.</li></ul></article>`;
+    renderCalendarAssignedChores();
     return;
   }
 
@@ -984,6 +987,7 @@ function renderCalendar() {
     el.label.textContent = `${who} | ${d.toLocaleDateString(undefined, { month: "long", year: "numeric" })}`;
     el.grid.className = "calendar-grid month";
     el.grid.innerHTML = days.map((x) => `<div class="month-cell ${x.getMonth() !== d.getMonth() ? "faded" : ""}">${dateCell(x)}</div>`).join("");
+    renderCalendarAssignedChores();
     return;
   }
 
@@ -1000,6 +1004,7 @@ function renderCalendar() {
     }
     return `<article class="cell month-summary"><h4>${first.toLocaleDateString(undefined, { month: "long" })}</h4><p>${count} event${count === 1 ? "" : "s"}</p></article>`;
   }).join("");
+  renderCalendarAssignedChores();
 }
 
 function renderRequests() {
@@ -1163,9 +1168,62 @@ function renderNights() {
   }).join("") || "<li class='muted'>No nights set for this week.</li>";
 }
 
+function renderCalendarAssignedChores() {
+  if (!el.calendarAssignedChores) return;
+  const weekStart = weekStartIso(state.currentDate);
+  const rows = state.game.assignments
+    .filter((a) => inWeek(a.scheduledDate, weekStart))
+    .filter((a) => state.selectedPersonId === "family" || a.userId === state.selectedPersonId)
+    .sort((a, b) => `${a.scheduledDate}${a.userName}${a.choreTitle}`.localeCompare(`${b.scheduledDate}${b.userName}${b.choreTitle}`));
+
+  el.calendarAssignedChores.innerHTML = rows.map((a) => {
+    const who = findMember(a.userId)?.name || a.userName || "Unknown";
+    return `<li><div class="list-content"><strong>${escapeHtml(a.choreTitle)}</strong><small>${escapeHtml(a.scheduledDate)} | ${escapeHtml(who)} | ${a.pointsAwarded} pt</small><small>Status: ${escapeHtml(a.status)}</small></div><div class="row-actions"><button class="btn btn-secondary btn-sm" data-complete-assignment="${a.id}" type="button">Complete</button><button class="btn btn-secondary btn-sm" data-skip-assignment="${a.id}" type="button">Skip</button></div></li>`;
+  }).join("") || "<li class='muted'>No scheduled chores for this week.</li>";
+}
+
+async function generateWeeklyChoreSchedule() {
+  ensureGameDefaults();
+  const weekStart = state.game.scheduleWeekStart;
+  const dailyMax = Math.max(1, Math.min(6, Number(el.choreDailyMax?.value) || 2));
+
+  let assignments = [];
+  try {
+    const data = await requestChoreSchedule({
+      weekStart,
+      dailyMax,
+      members: state.members.map((m) => ({ id: m.id, name: m.name, age: m.age, role: m.role })),
+      chores: choreTemplates(),
+    });
+    const aiRows = Array.isArray(data.assignments) ? data.assignments : [];
+    assignments = aiRows.map((r) => assignmentFromAiRow(r, weekStart)).filter(Boolean);
+  } catch (_err) {
+    assignments = [];
+  }
+
+  if (!assignments.length) {
+    assignments = generateBalancedAssignments(weekStart, dailyMax);
+    alert("AI schedule unavailable. A balanced local schedule was generated.");
+  }
+
+  applyAssignments(assignments, weekStart);
+  ensureNightsForWeek(weekStart);
+  if (!state.game.selectedDate || !inWeek(state.game.selectedDate, weekStart)) {
+    state.game.selectedDate = weekStart;
+  }
+
+  await saveState();
+  renderChoreGameControls();
+  renderDailyAssignments();
+  renderWeeklyLoad();
+  renderGameLeaderboard();
+  renderNights();
+  renderCalendarAssignedChores();
+}
+
 function updateChoreNote() {
-  const m = findMember(state.selectedPersonId);
-  el.choreGenNote.textContent = m ? `Generate chores for ${m.name}.` : "Select a person tab to generate chores.";
+  if (!el.choreGenNote) return;
+  el.choreGenNote.textContent = "Creates a fair Monday-Sunday schedule for all family members.";
 }
 
 function generatedChoresFor(member) {
@@ -1730,15 +1788,7 @@ document.getElementById("choreForm").addEventListener("submit", async (e) => {
 });
 
 document.getElementById("generateChoresBtn").addEventListener("click", async () => {
-  const member = findMember(state.selectedPersonId);
-  if (!member) {
-    alert("Select a person tab first.");
-    return;
-  }
-  state.chores = state.chores.filter((c) => !(c.memberId === member.id && c.autogenerated));
-  state.chores.unshift(...generatedChoresFor(member));
-  await saveState();
-  renderChores();
+  await generateWeeklyChoreSchedule();
 });
 
 el.choreGameDate?.addEventListener("change", () => {
@@ -1755,44 +1805,6 @@ el.choreGameWeekStart?.addEventListener("change", async () => {
     state.game.selectedDate = state.game.scheduleWeekStart;
   }
   ensureNightsForWeek(state.game.scheduleWeekStart);
-  await saveState();
-  renderChoreGameControls();
-  renderDailyAssignments();
-  renderWeeklyLoad();
-  renderGameLeaderboard();
-  renderNights();
-});
-
-el.generateWeeklyChoreGameBtn?.addEventListener("click", async () => {
-  ensureGameDefaults();
-  const weekStart = state.game.scheduleWeekStart;
-  const dailyMax = Math.max(1, Math.min(6, Number(el.choreDailyMax?.value) || 2));
-
-  let assignments = [];
-  try {
-    const data = await requestChoreSchedule({
-      weekStart,
-      dailyMax,
-      members: state.members.map((m) => ({ id: m.id, name: m.name, age: m.age, role: m.role })),
-      chores: choreTemplates(),
-    });
-    const aiRows = Array.isArray(data.assignments) ? data.assignments : [];
-    assignments = aiRows.map((r) => assignmentFromAiRow(r, weekStart)).filter(Boolean);
-  } catch (_err) {
-    assignments = [];
-  }
-
-  if (!assignments.length) {
-    assignments = generateBalancedAssignments(weekStart, dailyMax);
-    alert("AI schedule unavailable. A balanced local schedule was generated.");
-  }
-
-  applyAssignments(assignments, weekStart);
-  ensureNightsForWeek(weekStart);
-  if (!state.game.selectedDate || !inWeek(state.game.selectedDate, weekStart)) {
-    state.game.selectedDate = weekStart;
-  }
-
   await saveState();
   renderChoreGameControls();
   renderDailyAssignments();
@@ -2103,6 +2115,30 @@ el.dailyAssignmentsList?.addEventListener("click", async (e) => {
   await saveState();
   renderDailyAssignments();
   renderGameLeaderboard();
+  renderCalendarAssignedChores();
+});
+
+el.calendarAssignedChores?.addEventListener("click", async (e) => {
+  const completeId = e.target.closest("[data-complete-assignment]")?.dataset.completeAssignment;
+  const skipId = e.target.closest("[data-skip-assignment]")?.dataset.skipAssignment;
+  const id = completeId || skipId;
+  if (!id) return;
+  const row = state.game.assignments.find((a) => a.id === id);
+  if (!row) return;
+
+  if (completeId) {
+    if (row.status === "completed") return;
+    row.status = "completed";
+    row.completedAt = new Date().toISOString();
+  } else {
+    row.status = "skipped";
+    row.completedAt = "";
+  }
+
+  await saveState();
+  renderDailyAssignments();
+  renderGameLeaderboard();
+  renderCalendarAssignedChores();
 });
 
 el.nightsList?.addEventListener("click", async (e) => {

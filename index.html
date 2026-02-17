@@ -110,6 +110,11 @@
           <h3>Recurring Activities</h3>
           <ul id="recurringList" class="list"></ul>
         </section>
+        <section class="card">
+          <h3>Scheduled Chores</h3>
+          <p class="hint">List view for the selected person/family in the current week.</p>
+          <ul id="calendarAssignedChores" class="list"></ul>
+        </section>
 
       </aside>
     </main>
@@ -169,8 +174,8 @@
             </select>
             <button class="btn btn-secondary" type="submit">Add</button>
           </form>
-          <button id="generateChoresBtn" class="btn btn-primary">AI Generate Chores For Selected Tab</button>
-          <p id="choreGenNote" class="hint">Select a person tab to generate chores.</p>
+          <button id="generateChoresBtn" class="btn btn-primary" type="button">AI Generate Weekly Chore Schedule</button>
+          <p id="choreGenNote" class="hint">Generates a balanced Monday-Sunday plan for everyone.</p>
           <ul id="choreList" class="list chore-plan-list"></ul>
           <hr />
           <h3>Chore Game</h3>
@@ -186,7 +191,6 @@
             </label>
           </div>
           <div class="row-actions">
-            <button id="generateWeeklyChoreGameBtn" class="btn btn-primary" type="button">Generate Weekly Chore Schedule (AI)</button>
             <button id="finalizeWeekBtn" class="btn btn-secondary" type="button">Finalize Week + Unlock Randomizer</button>
           </div>
           <div class="inline-form">
