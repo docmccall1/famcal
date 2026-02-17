@@ -10,6 +10,8 @@ const state = {
   requests: [],
   todos: [],
   chores: [],
+  editingEventId: "",
+  editingEventInvolvedIds: [],
   planner: {
     location: "",
     prefs: "",
@@ -90,6 +92,15 @@ const el = {
   eventAllDay: document.getElementById("eventAllDay"),
   eventTimeRow: document.getElementById("eventTimeRow"),
   eventInvolved: document.getElementById("eventInvolved"),
+  eventForm: document.getElementById("eventForm"),
+  eventTitle: document.getElementById("eventTitle"),
+  eventStartDate: document.getElementById("eventStartDate"),
+  eventEndDate: document.getElementById("eventEndDate"),
+  eventStart: document.getElementById("eventStart"),
+  eventEnd: document.getElementById("eventEnd"),
+  eventRecurring: document.getElementById("eventRecurring"),
+  eventSubmitBtn: document.getElementById("eventSubmitBtn"),
+  eventCancelBtn: document.getElementById("eventCancelBtn"),
 };
 
 function uid() {
@@ -425,12 +436,74 @@ function renderChoresPersonTabs() {
 }
 
 function renderInvolvedChecklist() {
+  const selected = new Set(state.editingEventInvolvedIds || []);
   el.eventInvolved.innerHTML = state.members.map((m) => `
     <label class="checkbox-row">
-      <input type="checkbox" value="${m.id}" data-involved-member />
+      <input type="checkbox" value="${m.id}" data-involved-member ${selected.has(m.id) ? "checked" : ""} />
       <span>${escapeHtml(m.name)}</span>
     </label>
   `).join("");
+}
+
+function eventActionButtons(evId) {
+  return `
+    <div class="row-actions">
+      <button class="btn btn-secondary btn-sm" type="button" data-edit-event="${evId}">Edit</button>
+      <button class="icon-btn" type="button" data-delete-event="${evId}" title="Delete event">✕</button>
+    </div>
+  `;
+}
+
+function updateEventFormMode() {
+  const editing = Boolean(state.editingEventId);
+  if (el.eventSubmitBtn) el.eventSubmitBtn.textContent = editing ? "Save Event Changes" : "Add Event";
+  if (el.eventCancelBtn) el.eventCancelBtn.classList.toggle("hidden", !editing);
+}
+
+function resetEventEditor(form = el.eventForm) {
+  state.editingEventId = "";
+  state.editingEventInvolvedIds = [];
+  if (form) form.reset();
+  if (el.eventTimeRow) el.eventTimeRow.classList.remove("hidden");
+  renderInvolvedChecklist();
+  populateMemberSelects();
+  updateEventFormMode();
+}
+
+function startEventEdit(eventId) {
+  const ev = state.events.find((x) => x.id === eventId);
+  if (!ev) return;
+  state.editingEventId = ev.id;
+  state.editingEventInvolvedIds = Array.isArray(ev.involvedMemberIds) && ev.involvedMemberIds.length
+    ? [...ev.involvedMemberIds]
+    : [ev.memberId].filter(Boolean);
+  setMainTab("calendar");
+  renderInvolvedChecklist();
+
+  if (el.eventTitle) el.eventTitle.value = ev.title || "";
+  if (el.eventStartDate) el.eventStartDate.value = ev.startDate || "";
+  if (el.eventEndDate) el.eventEndDate.value = ev.endDate || ev.startDate || "";
+  if (el.eventAllDay) el.eventAllDay.checked = !!ev.allDay;
+  if (el.eventStart) el.eventStart.value = ev.start || "";
+  if (el.eventEnd) el.eventEnd.value = ev.end || "";
+  if (el.eventRecurring) el.eventRecurring.value = ev.recurring || "none";
+  if (el.eventMember) el.eventMember.value = ev.memberId || state.members[0]?.id || "";
+
+  if (el.eventTimeRow) el.eventTimeRow.classList.toggle("hidden", !!ev.allDay);
+  updateEventFormMode();
+  el.eventTitle?.focus();
+}
+
+async function removeEvent(eventId) {
+  const before = state.events.length;
+  state.events = state.events.filter((x) => x.id !== eventId);
+  if (before === state.events.length) return;
+  if (state.editingEventId === eventId) resetEventEditor();
+  await saveState();
+  renderCalendar();
+  renderRecurring();
+  renderPersonEvents();
+  renderRequestEventsList();
 }
 
 function populateMemberSelects() {
@@ -525,7 +598,10 @@ function dateCell(date, includeDayChores = false) {
           <div class="event-meta">${escapeHtml(eventDateText(ev))}${ev.recurring !== "none" ? ` | ${escapeHtml(ev.recurring)}` : ""}</div>
           ${involvedText}
         </div>
-        <span class="member-pill" style="--member-color: ${memberColor(owner)}">${escapeHtml(owner)}</span>
+        <div class="event-right">
+          <span class="member-pill" style="--member-color: ${memberColor(owner)}">${escapeHtml(owner)}</span>
+          ${eventActionButtons(ev.id)}
+        </div>
       </li>
     `;
   }).join("");
@@ -574,7 +650,7 @@ function renderCalendar() {
         const involved = eventInvolvedNames(ev);
         const involvedText = involved.length ? ` | Involved: ${escapeHtml(involved.join(", "))}` : "";
         const timeText = ev.allDay ? "All Day" : (ev.start ? `${escapeHtml(ev.start)}-${escapeHtml(ev.end || "")}` : "Time TBD");
-        return `<li class="event-item" style="--member-color:${memberColor(owner)}"><div><strong>${day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} | ${timeText} | ${escapeHtml(ev.title)}</strong><div class="event-meta">${escapeHtml(owner)}${involvedText}</div></div></li>`;
+        return `<li class="event-item" style="--member-color:${memberColor(owner)}"><div><strong>${day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} | ${timeText} | ${escapeHtml(ev.title)}</strong><div class="event-meta">${escapeHtml(owner)}${involvedText}</div></div>${eventActionButtons(ev.id)}</li>`;
       }).join("")}</ul></article>`
       : `<article class="cell"><h4>Weekly Events</h4><ul><li class='muted'>No events this week.</li></ul></article>`;
     return;
@@ -630,7 +706,7 @@ function renderRequestEventsList() {
   el.requestEventsList.innerHTML = upcoming.map((ev) => {
     const who = displayMember(ev);
     const timeText = ev.allDay ? "All Day" : (ev.start ? `${ev.start}${ev.end ? `-${ev.end}` : ""}` : "Time TBD");
-    return `<li><div class="list-content"><strong>${escapeHtml(ev.title)}</strong><small>${escapeHtml(ev.startDate)} ${escapeHtml(timeText)}</small></div><span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span></li>`;
+    return `<li><div class="list-content"><strong>${escapeHtml(ev.title)}</strong><small>${escapeHtml(ev.startDate)} ${escapeHtml(timeText)}</small></div><div class="event-right"><span class="member-pill" style="--member-color:${memberColor(who)}">${escapeHtml(who)}</span>${eventActionButtons(ev.id)}</div></li>`;
   }).join("") || "<li class='muted'>No family events scheduled.</li>";
 }
 
@@ -791,6 +867,7 @@ function renderMealSuggestions() {
   const deals = Array.isArray(meal.deals) ? meal.deals : [];
   const recipes = Array.isArray(meal.recipes) ? meal.recipes : [];
   const nextDay = Array.isArray(meal.nextDay) ? meal.nextDay : [];
+  const recipeSection = extractMealSection(meal.rawText || "", "Option B (Recipe):", "Tomorrow Suggestions:");
 
   if (el.mealDealsList) {
     el.mealDealsList.innerHTML = deals.length
@@ -800,7 +877,30 @@ function renderMealSuggestions() {
 
   if (el.mealRecipesList) {
     el.mealRecipesList.innerHTML = recipes.length
-      ? recipes.map((r) => `<li><div class="list-content"><strong>${escapeHtml(r.name || "Recipe")}</strong><small>${escapeHtml(String(r.time_minutes || ""))} min${r.cost_estimate ? ` | ${escapeHtml(r.cost_estimate)}` : ""}</small><small>${escapeHtml(r.notes || "")}</small></div></li>`).join("")
+      ? recipes.map((r, idx) => {
+        const recipeName = r.name || "Recipe";
+        const minutes = r.time_minutes ? `${escapeHtml(String(r.time_minutes))} min` : "";
+        const meta = [minutes, r.cost_estimate ? escapeHtml(r.cost_estimate) : ""].filter(Boolean).join(" | ");
+        const notes = String(r.notes || "").trim();
+        const fallbackDetails = !notes && recipeSection && idx === 0 ? recipeSection : "";
+        return `
+          <li class="meal-recipe-item">
+            <details class="recipe-details">
+              <summary>
+                <span class="list-content">
+                  <strong>${escapeHtml(recipeName)}</strong>
+                  ${meta ? `<small>${meta}</small>` : "<small>Tap to expand details</small>"}
+                </span>
+              </summary>
+              <div class="recipe-body">
+                ${notes ? `<p>${escapeHtml(notes)}</p>` : ""}
+                ${fallbackDetails ? `<pre>${escapeHtml(fallbackDetails)}</pre>` : ""}
+                <button class="btn btn-secondary" type="button" data-share-recipe="${idx}">Save to Notes (iPhone Share)</button>
+              </div>
+            </details>
+          </li>
+        `;
+      }).join("")
       : "<li class='muted'>No at-home recipes yet.</li>";
   }
 
@@ -808,6 +908,11 @@ function renderMealSuggestions() {
     el.mealNextDayList.innerHTML = nextDay.length
       ? nextDay.map((n) => `<li><div class="list-content"><strong>${escapeHtml(n.title || "Next Day")}</strong><small>${escapeHtml(n.type || "")}</small><small>${escapeHtml(n.notes || "")}</small></div></li>`).join("")
       : "<li class='muted'>No next-day suggestions yet.</li>";
+  }
+
+  if (el.mealPlanText) {
+    el.mealPlanText.textContent = meal.rawText || "";
+    el.mealPlanText.classList.toggle("hidden", !meal.rawText);
   }
 }
 
@@ -985,6 +1090,50 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
+function extractMealSection(rawText, startHeading, endHeading) {
+  const text = String(rawText || "");
+  if (!text) return "";
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim().toLowerCase() === startHeading.trim().toLowerCase());
+  if (start === -1) return "";
+  let end = lines.length;
+  if (endHeading) {
+    const endIdx = lines.findIndex((line, idx) => idx > start && line.trim().toLowerCase() === endHeading.trim().toLowerCase());
+    if (endIdx !== -1) end = endIdx;
+  }
+  return lines.slice(start + 1, end).join("\n").trim();
+}
+
+function recipeShareText(recipe, fallbackDetails) {
+  const title = recipe?.name || "At-home recipe";
+  const lines = [title];
+  if (recipe?.time_minutes) lines.push(`Time: ${recipe.time_minutes} minutes`);
+  if (recipe?.cost_estimate) lines.push(`Estimated cost: ${recipe.cost_estimate}`);
+  if (recipe?.notes) lines.push("", String(recipe.notes));
+  if (fallbackDetails) lines.push("", fallbackDetails);
+  return lines.join("\n").trim();
+}
+
+async function shareRecipeToNotes(recipe, fallbackDetails) {
+  const title = recipe?.name || "At-home recipe";
+  const text = recipeShareText(recipe, fallbackDetails);
+  if (!text) return;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text });
+      return;
+    } catch (_err) {
+      // User canceled share sheet or share target failed; continue to clipboard fallback.
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    alert("Recipe copied. Open iPhone Notes and paste.");
+  } catch (_err) {
+    prompt("Copy this recipe into Notes:", text);
+  }
+}
+
 function selectedMemberFrom(select) {
   return findMember(select.value) || state.members[0] || null;
 }
@@ -995,37 +1144,53 @@ document.getElementById("eventAllDay").addEventListener("change", () => {
 
 document.getElementById("eventForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const title = document.getElementById("eventTitle").value.trim();
-  const startDate = document.getElementById("eventStartDate").value;
-  const endDateRaw = document.getElementById("eventEndDate").value;
+  const title = el.eventTitle.value.trim();
+  const startDate = el.eventStartDate.value;
+  const endDateRaw = el.eventEndDate.value;
   const allDay = el.eventAllDay.checked;
   const owner = selectedMemberFrom(el.eventMember);
   const involved = Array.from(document.querySelectorAll("[data-involved-member]:checked")).map((x) => x.value);
   if (!title || !startDate || !endDateRaw || !owner) return;
 
-  state.events.push({
-    id: uid(),
+  const nextEvent = {
     title,
     startDate,
     endDate: endDateRaw < startDate ? startDate : endDateRaw,
     allDay,
-    start: allDay ? "" : document.getElementById("eventStart").value,
-    end: allDay ? "" : document.getElementById("eventEnd").value,
+    start: allDay ? "" : el.eventStart.value,
+    end: allDay ? "" : el.eventEnd.value,
     memberId: owner.id,
     memberName: owner.name,
     involvedMemberIds: Array.from(new Set(involved.concat(owner.id))),
-    recurring: document.getElementById("eventRecurring").value,
-  });
+    recurring: el.eventRecurring.value,
+  };
 
-  e.target.reset();
-  el.eventTimeRow.classList.remove("hidden");
-  renderInvolvedChecklist();
-  populateMemberSelects();
+  if (state.editingEventId) {
+    const idx = state.events.findIndex((ev) => ev.id === state.editingEventId);
+    if (idx >= 0) {
+      const prev = state.events[idx];
+      state.events[idx] = {
+        ...prev,
+        ...nextEvent,
+        id: prev.id,
+      };
+    } else {
+      state.events.push({ id: uid(), ...nextEvent });
+    }
+  } else {
+    state.events.push({ id: uid(), ...nextEvent });
+  }
+
+  resetEventEditor(e.target);
   await saveState();
   renderCalendar();
   renderRecurring();
   renderPersonEvents();
   renderRequestEventsList();
+});
+
+el.eventCancelBtn?.addEventListener("click", () => {
+  resetEventEditor();
 });
 
 document.getElementById("requestForm").addEventListener("submit", async (e) => {
@@ -1385,14 +1550,54 @@ el.plannerIdeas.addEventListener("click", async (e) => {
   }
 });
 
+el.requestEventsList?.addEventListener("click", async (e) => {
+  const editId = e.target.closest("[data-edit-event]")?.dataset.editEvent;
+  if (editId) {
+    startEventEdit(editId);
+    return;
+  }
+  const deleteId = e.target.closest("[data-delete-event]")?.dataset.deleteEvent;
+  if (!deleteId) return;
+  if (!window.confirm("Delete this event?")) return;
+  await removeEvent(deleteId);
+});
+
+el.mealRecipesList?.addEventListener("click", async (e) => {
+  const button = e.target.closest("[data-share-recipe]");
+  if (!button) return;
+  const idx = Number(button.dataset.shareRecipe);
+  if (Number.isNaN(idx) || idx < 0) return;
+  const meal = state.planner.meal || {};
+  const recipes = Array.isArray(meal.recipes) ? meal.recipes : [];
+  const recipe = recipes[idx];
+  if (!recipe) return;
+  const fallbackDetails = !recipe.notes && idx === 0
+    ? extractMealSection(meal.rawText || "", "Option B (Recipe):", "Tomorrow Suggestions:")
+    : "";
+  await shareRecipeToNotes(recipe, fallbackDetails);
+});
+
 el.grid.addEventListener("click", (e) => {
+  const editId = e.target.closest("[data-edit-event]")?.dataset.editEvent;
+  if (editId) {
+    startEventEdit(editId);
+    return;
+  }
+  const deleteId = e.target.closest("[data-delete-event]")?.dataset.deleteEvent;
+  if (deleteId) {
+    if (window.confirm("Delete this event?")) {
+      removeEvent(deleteId);
+    }
+    return;
+  }
   const action = e.target.dataset.action;
   if (action !== "jump") return;
   const date = e.target.dataset.date;
   if (!date) return;
-  document.getElementById("eventStartDate").value = date;
-  document.getElementById("eventEndDate").value = date;
-  document.getElementById("eventTitle").focus();
+  resetEventEditor();
+  el.eventStartDate.value = date;
+  el.eventEndDate.value = date;
+  el.eventTitle.focus();
 });
 
 el.grid.addEventListener("change", async (e) => {
@@ -1467,6 +1672,7 @@ function render() {
   renderPersonEvents();
   renderChores();
   updateChoreNote();
+  updateEventFormMode();
   setPlannerInputs();
   renderPlannerIdeas();
   renderMealSuggestions();
@@ -1476,7 +1682,3 @@ function render() {
   await loadState();
   render();
 })();
-  if (el.mealPlanText) {
-    el.mealPlanText.textContent = meal.rawText || "";
-    el.mealPlanText.classList.toggle("hidden", !meal.rawText);
-  }
